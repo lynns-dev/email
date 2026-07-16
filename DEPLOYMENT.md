@@ -69,13 +69,29 @@ signup form) — either or both can be used.
 
 ### 4a. Create a Custom App in Shopify
 
-1. Shopify admin → **Settings → Apps and sales channels → Develop apps**
-   → **Create an app**.
-2. **Configuration** → Admin API scopes → enable `read_customers` and
+As of January 1, 2026, Shopify no longer supports creating custom apps
+with a permanent Admin API token from the store admin — new apps are
+created in the **Dev Dashboard** and authenticate via OAuth's
+client-credentials grant instead (Client ID/Secret exchanged for a
+short-lived access token, refreshed automatically — `lib/shopify.js`
+handles the refresh, nothing to do manually here beyond initial setup).
+
+1. Go to Shopify's [Dev Dashboard](https://dev.shopify.com/dashboard) and
+   create an app under your organization.
+2. Configure Admin API access scopes: enable `read_customers` and
    `read_orders`.
-3. **API credentials** → Install the app → copy the **Admin API access
-   token** into `SHOPIFY_ADMIN_API_TOKEN`. Set `SHOPIFY_STORE_DOMAIN` to
-   your `*.myshopify.com` domain.
+3. Install the app on your store (client-credentials only works for apps
+   you own, installed in a store you own — not a public/third-party app
+   flow).
+4. Copy the app's **Client ID** and **Client secret** into
+   `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET`. Set `SHOPIFY_STORE_DOMAIN`
+   to your `*.myshopify.com` domain.
+
+(If you already have a pre-2026 custom app with a static token, it may
+still work for now — Shopify has said existing static tokens continue
+functioning even as new-app creation moved to the Dev Dashboard — but
+plan to migrate; Shopify's own guidance is to move to OAuth. This app
+only supports the client-credentials flow.)
 
 ### 4b. Run the first backfill
 
@@ -128,8 +144,11 @@ hourly with header `Authorization: Bearer <CRON_SECRET>`.
 **"KV_REST_API_URL / KV_REST_API_TOKEN are not set" error:**
 - Complete Step 1
 
-**Shopify sync returns 0 synced, or "SHOPIFY_STORE_DOMAIN / SHOPIFY_ADMIN_API_TOKEN are not set":**
+**Shopify sync returns 0 synced, or "SHOPIFY_STORE_DOMAIN / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET are not set":**
 - Complete Step 4a. A 0-synced result with no error usually means no Shopify customers currently have `SUBSCRIBED` email marketing consent — check Shopify's own Customers list, filtered to "Subscribed", to confirm
 
 **Webhook events aren't updating subscribers (new Shopify signups don't show up without a manual sync):**
 - Confirm the webhook subscriptions in Step 4c are pointed at the right URL and `SHOPIFY_WEBHOOK_SECRET` matches — a signature mismatch fails silently with a 401, check Shopify's webhook delivery log (Settings → Notifications → Webhooks → the subscription → recent deliveries) for the actual response code
+
+**"Shopify token exchange failed: 401" or "403":**
+- `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` don't match, or the app isn't installed on the store named in `SHOPIFY_STORE_DOMAIN` — re-check Step 4a. The access token this exchange returns is only valid ~24h; that refresh happens automatically in `lib/shopify.js`, so this error means the exchange itself is failing, not an expired token
