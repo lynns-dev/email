@@ -6,14 +6,23 @@ import { T, S } from '../../lib/theme';
 export default function AdminDashboard() {
   const router = useRouter();
   const [subscribers, setSubscribers] = React.useState([]);
+  const [gradeSummary, setGradeSummary] = React.useState(null);
   const [campaigns, setCampaigns] = React.useState([]);
   const [automations, setAutomations] = React.useState([]);
   const [campaignForm, setCampaignForm] = React.useState({ subject: '', fromName: '', segment: 'all', html: '' });
   const [campaignFormMessage, setCampaignFormMessage] = React.useState('');
   const [sendingCampaignId, setSendingCampaignId] = React.useState(null);
+  const [shopifySyncing, setShopifySyncing] = React.useState(false);
+  const [shopifySyncResult, setShopifySyncResult] = React.useState('');
 
   const loadSubscribers = React.useCallback(() => {
-    fetch('/api/admin/email/subscribers').then((r) => r.json()).then((data) => setSubscribers(data.subscribers || [])).catch(() => {});
+    fetch('/api/admin/email/subscribers')
+      .then((r) => r.json())
+      .then((data) => {
+        setSubscribers(data.subscribers || []);
+        setGradeSummary(data.gradeSummary || null);
+      })
+      .catch(() => {});
   }, []);
 
   const loadCampaigns = React.useCallback(() => {
@@ -104,6 +113,23 @@ export default function AdminDashboard() {
     router.push('/admin/login');
   };
 
+  const handleShopifySync = async () => {
+    setShopifySyncing(true);
+    setShopifySyncResult('');
+    try {
+      const res = await fetch('/api/admin/shopify/sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setShopifySyncResult(data.error || 'Sync failed.');
+        return;
+      }
+      setShopifySyncResult(`Synced ${data.synced} of ${data.total} consented customers.`);
+      loadSubscribers();
+    } finally {
+      setShopifySyncing(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: T.paper, padding: '32px 24px 80px' }}>
       <Head>
@@ -115,6 +141,29 @@ export default function AdminDashboard() {
           <span style={{ fontSize: 18, fontWeight: 700 }}>Email platform</span>
           <button onClick={handleLogout} style={S.btnOutline}>Sign out</button>
         </div>
+
+        {gradeSummary && gradeSummary.total > 0 && (
+          <Section title="List health">
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              {['A', 'B', 'C', 'D', 'F'].map((grade) => (
+                <div key={grade} style={gradeTile}>
+                  <div style={{ fontSize: 22, fontWeight: 700 }}>{gradeSummary.counts[grade]}</div>
+                  <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Grade {grade} · {gradeSummary.percentages[grade]}%</div>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        <Section title="Shopify sync">
+          <p style={{ color: T.soft, fontSize: 14, marginBottom: 16 }}>
+            Pulls in every Shopify customer whose email marketing consent is currently subscribed. Customers who aren't opted in are skipped, not imported.
+          </p>
+          <button onClick={handleShopifySync} disabled={shopifySyncing} style={S.btnFill}>
+            {shopifySyncing ? 'Syncing…' : 'Sync now'}
+          </button>
+          {shopifySyncResult && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{shopifySyncResult}</span>}
+        </Section>
 
         <Section
           title={`Subscribers (${subscribers.length})`}
@@ -128,6 +177,7 @@ export default function AdminDashboard() {
                 <div style={{ flex: 2 }}>Email</div>
                 <div style={{ flex: 1 }}>Status</div>
                 <div style={{ flex: 1 }}>Tier</div>
+                <div style={{ width: 60 }}>Grade</div>
                 <div style={{ flex: 1 }}>Joined</div>
                 <div style={{ width: 90 }} />
               </div>
@@ -136,6 +186,7 @@ export default function AdminDashboard() {
                   <div style={{ flex: 2 }}>{s.email}</div>
                   <div style={{ flex: 1 }}>{s.status}</div>
                   <div style={{ flex: 1 }}>{s.tier}</div>
+                  <div style={{ width: 60 }}>{s.grade || '—'}</div>
                   <div style={{ flex: 1 }}>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</div>
                   <div style={{ width: 90 }}>
                     {s.status !== 'suppressed' && (
@@ -200,6 +251,9 @@ export default function AdminDashboard() {
                 >
                   <option value="all">All subscribed</option>
                   <option value="engaged">Engaged only</option>
+                  <option value="grade:A">Grade A only</option>
+                  <option value="grade:A+B">Grade A+B</option>
+                  <option value="grade:A+B+C">Grade A+B+C</option>
                 </select>
               </div>
             </div>
@@ -277,3 +331,4 @@ const formInput = {
   fontFamily: T.sans, fontSize: 14, color: T.ink, outline: 'none', boxSizing: 'border-box',
 };
 const formLabel = { display: 'block', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, marginBottom: 6 };
+const gradeTile = { background: T.paper, border: `1px solid ${T.line}`, padding: '14px 18px', minWidth: 90, textAlign: 'center' };

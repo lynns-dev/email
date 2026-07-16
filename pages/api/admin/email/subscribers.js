@@ -1,11 +1,12 @@
 import { getSubscribers, suppressByEmail } from '../../../../lib/subscribersStore';
 import { engagementTier } from '../../../../lib/emailEngagement';
+import { computeGrade, gradeSummary } from '../../../../lib/listGrading';
 
 function toCsv(subscribers) {
-  const header = ['email', 'status', 'tier', 'source', 'createdAt', 'confirmedAt', 'lastClickAt'];
+  const header = ['email', 'status', 'tier', 'grade', 'source', 'createdAt', 'confirmedAt', 'lastClickAt', 'ordersCount', 'totalSpent'];
   const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = subscribers.map((s) =>
-    [s.email, s.status, engagementTier(s), s.source, s.createdAt || '', s.confirmedAt || '', s.lastClickAt || '']
+    [s.email, s.status, engagementTier(s), computeGrade(s).grade, s.source, s.createdAt || '', s.confirmedAt || '', s.lastClickAt || '', s.ordersCount || '', s.totalSpent || '']
       .map(escape)
       .join(',')
   );
@@ -23,8 +24,8 @@ export default async function handler(req, res) {
         return res.status(200).send(toCsv(subscribers));
       }
 
-      const withTiers = subscribers.map((s) => ({ ...s, tier: engagementTier(s) }));
-      return res.status(200).json({ subscribers: withTiers });
+      const withTiers = subscribers.map((s) => ({ ...s, tier: engagementTier(s), grade: computeGrade(s).grade }));
+      return res.status(200).json({ subscribers: withTiers, gradeSummary: gradeSummary(subscribers) });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

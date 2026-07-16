@@ -60,7 +60,45 @@ sandbox first using your own verified inbox as the recipient.
 IAM user/role with `ses:SendEmail` scoped to your verified identity → its
 access key goes in `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
 
-## Step 4: Connect a storefront
+## Step 4: Sync customers from Shopify
+
+Pulls in Shopify customers as subscribers — consent-gated, so only
+customers whose Shopify email marketing consent is currently
+`SUBSCRIBED` are imported. This is independent of Step 5 (storefront
+signup form) — either or both can be used.
+
+### 4a. Create a Custom App in Shopify
+
+1. Shopify admin → **Settings → Apps and sales channels → Develop apps**
+   → **Create an app**.
+2. **Configuration** → Admin API scopes → enable `read_customers` and
+   `read_orders`.
+3. **API credentials** → Install the app → copy the **Admin API access
+   token** into `SHOPIFY_ADMIN_API_TOKEN`. Set `SHOPIFY_STORE_DOMAIN` to
+   your `*.myshopify.com` domain.
+
+### 4b. Run the first backfill
+
+Once deployed with those env vars set, go to `<this-app-url>/admin` →
+**Shopify sync** → **Sync now**. This is a one-time (or re-run-anytime)
+pull of every currently-consented customer.
+
+### 4c. Set up webhooks for ongoing sync
+
+So new signups / consent changes / orders show up without re-running the
+backfill manually:
+
+1. In the same Custom App, or via **Settings → Notifications → Webhooks**,
+   add webhook subscriptions for `customers/create`, `customers/update`,
+   and `orders/create`, all pointing at
+   `https://<this-app-url>/api/shopify/webhook` (format: JSON, latest API
+   version).
+2. Shopify signs webhook payloads with a shared secret — find/generate it
+   alongside the webhook subscription and put it in
+   `SHOPIFY_WEBHOOK_SECRET`. Every request is HMAC-verified against this;
+   without it set, all webhook events are rejected.
+
+## Step 5: Connect a storefront (optional — signup form)
 
 1. Set `ALLOWED_ORIGINS` here to the storefront's origin(s), e.g.
    `https://smellsiconic.com,https://smells-iconic.vercel.app`.
@@ -68,7 +106,7 @@ access key goes in `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
 3. On the storefront, point its signup form at
    `<this-app-url>/api/email/subscribe`.
 
-## Step 5: Automations cron
+## Step 6: Automations cron
 
 `vercel.json` schedules `/api/cron/automations` once daily — **Vercel's
 Hobby plan only allows daily cron**, fine for the welcome series' day
@@ -89,3 +127,9 @@ hourly with header `Authorization: Bearer <CRON_SECRET>`.
 
 **"KV_REST_API_URL / KV_REST_API_TOKEN are not set" error:**
 - Complete Step 1
+
+**Shopify sync returns 0 synced, or "SHOPIFY_STORE_DOMAIN / SHOPIFY_ADMIN_API_TOKEN are not set":**
+- Complete Step 4a. A 0-synced result with no error usually means no Shopify customers currently have `SUBSCRIBED` email marketing consent — check Shopify's own Customers list, filtered to "Subscribed", to confirm
+
+**Webhook events aren't updating subscribers (new Shopify signups don't show up without a manual sync):**
+- Confirm the webhook subscriptions in Step 4c are pointed at the right URL and `SHOPIFY_WEBHOOK_SECRET` matches — a signature mismatch fails silently with a 401, check Shopify's webhook delivery log (Settings → Notifications → Webhooks → the subscription → recent deliveries) for the actual response code
