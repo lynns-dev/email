@@ -45,6 +45,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = React.useState('overview');
   const [automationMessage, setAutomationMessage] = React.useState({});
   const [previewOpen, setPreviewOpen] = React.useState({});
+  const [activeAutomationId, setActiveAutomationId] = React.useState(null);
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -778,8 +779,22 @@ export default function AdminDashboard() {
         {activeTab === 'automations' && (
         <>
         <Section title="Automations">
-          {automations.map((a) => (
-            <div key={a.id} style={{ paddingBottom: 24, marginBottom: 24, borderBottom: `1px solid ${T.line}` }}>
+          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+            <nav style={{ width: 180, flexShrink: 0 }}>
+              {automations.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setActiveAutomationId(a.id)}
+                  style={{ ...sidebarLink, ...((activeAutomationId || automations[0]?.id) === a.id ? sidebarLinkActive : {}) }}
+                >
+                  {a.name}
+                </button>
+              ))}
+            </nav>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {automations.filter((a) => a.id === (activeAutomationId || automations[0]?.id)).map((a) => (
+            <div key={a.id}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <strong style={{ fontSize: 14 }}>{a.name}</strong>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: T.soft }}>
@@ -851,7 +866,9 @@ export default function AdminDashboard() {
                 {automationMessage[a.id] && <span style={{ fontSize: 12, color: T.ink }}>{automationMessage[a.id]}</span>}
               </div>
             </div>
-          ))}
+              ))}
+            </div>
+          </div>
         </Section>
         </>
         )}
