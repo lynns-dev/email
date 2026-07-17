@@ -2,7 +2,7 @@ import React from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { T, S } from '../../lib/theme';
-import { createBlock, renderBlocksToHtml } from '../../lib/emailBlocks';
+import { createBlock, renderBlocksToHtml, EMAIL_FONTS } from '../../lib/emailBlocks';
 
 const BLOCK_LABELS = { text: 'Text', image: 'Image', button: 'Button' };
 
@@ -20,6 +20,35 @@ export default function AdminDashboard() {
   const [templateMessage, setTemplateMessage] = React.useState('');
   const [shopifySyncing, setShopifySyncing] = React.useState(false);
   const [shopifySyncResult, setShopifySyncResult] = React.useState('');
+  const [settings, setSettings] = React.useState(null);
+  const [settingsForm, setSettingsForm] = React.useState(null);
+  const [settingsMessage, setSettingsMessage] = React.useState('');
+  const [domainInput, setDomainInput] = React.useState('');
+  const [sesIdentity, setSesIdentity] = React.useState(null);
+  const [sesIdentityLoading, setSesIdentityLoading] = React.useState(false);
+  const [scheduleAt, setScheduleAt] = React.useState('');
+
+  const analytics = React.useMemo(() => {
+    const totals = campaigns.reduce(
+      (acc, c) => {
+        acc.sent += c.stats.sent || 0;
+        acc.delivered += c.stats.delivered || 0;
+        acc.bounced += c.stats.bounced || 0;
+        acc.complained += c.stats.complained || 0;
+        acc.clicked += c.stats.clicked || 0;
+        return acc;
+      },
+      { sent: 0, delivered: 0, bounced: 0, complained: 0, clicked: 0 }
+    );
+    const rate = (n, d) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+    return {
+      subscribed: subscribers.filter((s) => s.status === 'subscribed').length,
+      totalSent: totals.sent,
+      clickRate: rate(totals.clicked, totals.sent),
+      bounceRate: rate(totals.bounced, totals.sent),
+      complaintRate: rate(totals.complained, totals.sent),
+    };
+  }, [subscribers, campaigns]);
 
   const loadSubscribers = React.useCallback(() => {
     fetch('/api/admin/email/subscribers')
@@ -43,12 +72,33 @@ export default function AdminDashboard() {
     fetch('/api/admin/email/templates').then((r) => r.json()).then((data) => setTemplates(data.templates || [])).catch(() => {});
   }, []);
 
+  const loadSettings = React.useCallback(() => {
+    fetch('/api/admin/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        setSettings(data.settings || null);
+        setSettingsForm(data.settings || null);
+      })
+      .catch(() => {});
+  }, []);
+
+  const loadSesIdentity = React.useCallback(() => {
+    setSesIdentityLoading(true);
+    fetch('/api/admin/ses-identity')
+      .then((r) => r.json())
+      .then(setSesIdentity)
+      .catch(() => {})
+      .finally(() => setSesIdentityLoading(false));
+  }, []);
+
   React.useEffect(() => {
     loadSubscribers();
     loadCampaigns();
     loadAutomations();
     loadTemplates();
-  }, [loadSubscribers, loadCampaigns, loadAutomations, loadTemplates]);
+    loadSettings();
+    loadSesIdentity();
+  }, [loadSubscribers, loadCampaigns, loadAutomations, loadTemplates, loadSettings, loadSesIdentity]);
 
   const handleSuppressSubscriber = async (email) => {
     if (!confirm(`Suppress ${email}? They will never receive an email again.`)) return;
@@ -190,6 +240,65 @@ export default function AdminDashboard() {
     router.push('/admin/login');
   };
 
+  const handleSaveSettings = async (e) => {
+    e.preventDefault();
+    setSettingsMessage('');
+    const res = await fetch('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsForm),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setSettingsMessage(data.error || 'Failed to save settings.');
+      return;
+    }
+    setSettings(data.settings);
+    setSettingsMessage('Saved.');
+  };
+
+  const handleVerifyDomain = async () => {
+    if (!domainInput.trim()) return;
+    setSesIdentityLoading(true);
+    try {
+      const res = await fetch('/api/admin/ses-identity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ domain: domainInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Failed to start verification.');
+        return;
+      }
+      setSesIdentity(data);
+      setDomainInput('');
+    } finally {
+      setSesIdentityLoading(false);
+    }
+  };
+
+  const handleScheduleCampaign = async (id) => {
+    if (!scheduleAt) {
+      alert('Pick a date and time first.');
+      return;
+    }
+    const timestamp = new Date(scheduleAt).getTime();
+    if (!confirm(`Schedule this campaign for ${new Date(timestamp).toLocaleString()}?`)) return;
+    const res = await fetch('/api/admin/email/schedule-campaign', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, scheduledAt: timestamp }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to schedule campaign.');
+      return;
+    }
+    setScheduleAt('');
+    loadCampaigns();
+  };
+
   const handleShopifySync = async () => {
     setShopifySyncing(true);
     setShopifySyncResult('');
@@ -219,6 +328,31 @@ export default function AdminDashboard() {
           <button onClick={handleLogout} style={S.btnOutline}>Sign out</button>
         </div>
 
+        <Section title="Analytics">
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div style={gradeTile}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.subscribed}</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Subscribers</div>
+            </div>
+            <div style={gradeTile}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.totalSent}</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Emails sent (all-time)</div>
+            </div>
+            <div style={gradeTile}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.clickRate}%</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Click rate</div>
+            </div>
+            <div style={gradeTile}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.bounceRate}%</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Bounce rate</div>
+            </div>
+            <div style={gradeTile}>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.complaintRate}%</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Complaint rate</div>
+            </div>
+          </div>
+        </Section>
+
         {gradeSummary && gradeSummary.total > 0 && (
           <Section title="List health">
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -231,6 +365,86 @@ export default function AdminDashboard() {
             </div>
           </Section>
         )}
+
+        <Section title="Deliverability checklist">
+          <div>
+            <ChecklistRow ok={sesIdentity?.verified} label="Sending domain verified (DKIM)" busy={sesIdentityLoading} />
+            <ChecklistRow ok={sesIdentity?.account?.productionAccessEnabled} label="SES production access (out of the 200/day sandbox)" busy={sesIdentityLoading} />
+            <ChecklistRow ok={sesIdentity?.envConfigured?.configurationSet} label="Configuration set + bounce/complaint webhook configured" busy={sesIdentityLoading} />
+            <ChecklistRow ok={Boolean(settings?.physicalAddress)} label="Physical address set (required for the legal footer)" busy={!settings} />
+            <ChecklistRow ok label="One-click unsubscribe headers (built in)" />
+          </div>
+        </Section>
+
+        <Section title="Settings">
+          {settingsForm && (
+            <form onSubmit={handleSaveSettings}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={formLabel}>Sender email</label>
+                  <input value={settingsForm.senderEmail} onChange={(e) => setSettingsForm({ ...settingsForm, senderEmail: e.target.value })} style={formInput} placeholder="hello@yourdomain.com" />
+                </div>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={formLabel}>Sender name</label>
+                  <input value={settingsForm.senderName} onChange={(e) => setSettingsForm({ ...settingsForm, senderName: e.target.value })} style={formInput} placeholder="Your store name" />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={formLabel}>Company name</label>
+                  <input value={settingsForm.companyName} onChange={(e) => setSettingsForm({ ...settingsForm, companyName: e.target.value })} style={formInput} />
+                </div>
+                <div style={{ flex: 2, minWidth: 260 }}>
+                  <label style={formLabel}>Physical address (CAN-SPAM requires this in every send)</label>
+                  <input value={settingsForm.physicalAddress} onChange={(e) => setSettingsForm({ ...settingsForm, physicalAddress: e.target.value })} style={formInput} placeholder="123 Main St, City, ST 00000" />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={formLabel}>Logo URL (shown at the top of every campaign)</label>
+                  <input value={settingsForm.logoUrl} onChange={(e) => setSettingsForm({ ...settingsForm, logoUrl: e.target.value })} style={formInput} />
+                </div>
+                <div style={{ width: 200 }}>
+                  <label style={formLabel}>Email font</label>
+                  <select value={settingsForm.emailFont} onChange={(e) => setSettingsForm({ ...settingsForm, emailFont: e.target.value })} style={formInput}>
+                    {EMAIL_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+              <button type="submit" style={S.btnFill}>Save settings</button>
+              {settingsMessage && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{settingsMessage}</span>}
+            </form>
+          )}
+
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${T.line}` }}>
+            <label style={formLabel}>Verify a sending domain</label>
+            {sesIdentity?.domain ? (
+              <div style={{ fontSize: 13 }}>
+                <p><strong>{sesIdentity.domain}</strong> — {sesIdentity.verified ? 'Verified ✓' : `Pending (${sesIdentity.dkimStatus || 'not started'})`}</p>
+                {!sesIdentity.verified && sesIdentity.dkimTokens?.length > 0 && (
+                  <>
+                    <p style={{ color: T.soft, marginTop: 8 }}>Add these 3 CNAME records at your DNS provider:</p>
+                    <ul style={{ marginTop: 6, paddingLeft: 20, color: T.soft }}>
+                      {sesIdentity.dkimTokens.map((token) => (
+                        <li key={token} style={{ fontFamily: 'monospace', fontSize: 12 }}>{token}._domainkey.{sesIdentity.domain} → {token}.dkim.amazonses.com</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <button type="button" onClick={loadSesIdentity} disabled={sesIdentityLoading} style={{ ...S.btnOutline, marginTop: 12 }}>
+                  {sesIdentityLoading ? 'Checking…' : 'Check status'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input placeholder="mail.yourdomain.com" value={domainInput} onChange={(e) => setDomainInput(e.target.value)} style={{ ...formInput, width: 240 }} />
+                <button type="button" onClick={handleVerifyDomain} disabled={sesIdentityLoading} style={S.btnFill}>
+                  {sesIdentityLoading ? 'Starting…' : 'Start verification'}
+                </button>
+              </div>
+            )}
+          </div>
+        </Section>
 
         <Section title="Shopify sync">
           <p style={{ color: T.soft, fontSize: 14, marginBottom: 16 }}>
@@ -292,24 +506,41 @@ export default function AdminDashboard() {
         <Section title={`Campaigns (${campaigns.length})`}>
           {campaigns.length > 0 && (
             <div style={{ marginBottom: 24 }}>
-              {campaigns.map((c) => (
-                <div key={c.id} style={listRow}>
-                  <div style={{ flex: 1, fontSize: 14 }}>
-                    <strong>{c.subject}</strong> — {c.status} · {c.segment}
-                    <div style={{ fontSize: 12, color: T.soft, marginTop: 4 }}>
-                      Sent {c.stats.sent} · Clicked {c.stats.clicked} · Bounced {c.stats.bounced} · Complained {c.stats.complained}
+              {[...campaigns].sort((a, b) => (b.sentAt || b.scheduledAt || b.createdAt || 0) - (a.sentAt || a.scheduledAt || a.createdAt || 0)).map((c) => {
+                const clickRate = c.stats.sent ? Math.round((c.stats.clicked / c.stats.sent) * 1000) / 10 : 0;
+                const bounceRate = c.stats.sent ? Math.round((c.stats.bounced / c.stats.sent) * 1000) / 10 : 0;
+                return (
+                  <div key={c.id} style={listRow}>
+                    <div style={{ flex: 1, fontSize: 14 }}>
+                      <strong>{c.subject}</strong> — {c.status} · {c.segment}
+                      {c.status === 'scheduled' && c.scheduledAt && <span> · sends {new Date(c.scheduledAt).toLocaleString()}</span>}
+                      {c.sentAt && <span> · sent {new Date(c.sentAt).toLocaleDateString()}</span>}
+                      <div style={{ fontSize: 12, color: T.soft, marginTop: 4 }}>
+                        Sent {c.stats.sent} · Click rate {clickRate}% · Bounce rate {bounceRate}% · Complained {c.stats.complained}
+                      </div>
                     </div>
+                    {(c.status === 'draft' || c.status === 'scheduled') && (
+                      <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {c.status === 'draft' && (
+                          <>
+                            <button onClick={() => handleSendCampaign(c.id)} disabled={sendingCampaignId === c.id} style={S.btnFill}>
+                              {sendingCampaignId === c.id ? 'Sending…' : 'Send now'}
+                            </button>
+                            <input
+                              type="datetime-local"
+                              value={scheduleAt}
+                              onChange={(e) => setScheduleAt(e.target.value)}
+                              style={{ ...formInput, width: 180, height: 40 }}
+                            />
+                            <button onClick={() => handleScheduleCampaign(c.id)} style={S.btnOutline}>Schedule</button>
+                          </>
+                        )}
+                        <button onClick={() => handleDeleteCampaign(c.id)} style={deleteBtn}>{c.status === 'scheduled' ? 'Cancel' : 'Delete'}</button>
+                      </div>
+                    )}
                   </div>
-                  {c.status === 'draft' && (
-                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                      <button onClick={() => handleSendCampaign(c.id)} disabled={sendingCampaignId === c.id} style={S.btnFill}>
-                        {sendingCampaignId === c.id ? 'Sending…' : 'Send now'}
-                      </button>
-                      <button onClick={() => handleDeleteCampaign(c.id)} style={deleteBtn}>Delete</button>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           <form onSubmit={handleCreateCampaign}>
@@ -400,7 +631,7 @@ export default function AdminDashboard() {
                 <label style={formLabel}>Preview</label>
                 <iframe
                   title="Campaign preview"
-                  srcDoc={renderBlocksToHtml(campaignForm.blocks)}
+                  srcDoc={renderBlocksToHtml(campaignForm.blocks, settings || {}, { preview: true })}
                   style={{ width: '100%', height: 420, border: `1px solid ${T.line}`, background: T.paper }}
                 />
               </div>
@@ -423,7 +654,7 @@ export default function AdminDashboard() {
               </div>
               {a.steps.map((step, i) => (
                 <div key={i} style={{ fontSize: 12, color: T.soft, marginTop: 4 }}>
-                  Day {step.delayDays}: {step.subject || '(suppress if still inactive)'}
+                  {step.delayHours != null ? `Hour ${step.delayHours}` : `Day ${step.delayDays}`}: {step.subject || '(suppress if still inactive)'}
                 </div>
               ))}
             </div>
@@ -477,6 +708,17 @@ function BlockCard({ block, isFirst, isLast, onChange, onRemove, onMove }) {
           <input placeholder="Button URL" value={block.url} onChange={(e) => onChange({ url: e.target.value })} style={{ ...formInput, flex: 1 }} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ChecklistRow({ ok, label, busy }) {
+  const icon = busy ? '…' : ok ? '✓' : '✕';
+  const color = busy ? T.soft : ok ? '#1a7f37' : '#b3261e';
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 0', fontSize: 13 }}>
+      <span style={{ color, fontWeight: 700, width: 16 }}>{icon}</span>
+      <span>{label}</span>
     </div>
   );
 }

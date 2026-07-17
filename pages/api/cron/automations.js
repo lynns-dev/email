@@ -15,6 +15,7 @@ import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagem
 import { sendEmail } from '../../../lib/sesEmail';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 async function runWelcomeSeries(flow, subscribers) {
   if (!flow.enabled) return 0;
@@ -30,7 +31,7 @@ async function runWelcomeSeries(flow, subscribers) {
     const dueAt = sub.confirmedAt + step.delayDays * DAY_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: step.html, fromName: process.env.SES_FROM_NAME || 'Smells Iconic', unsubToken: sub.unsubToken });
+    await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
     await updateAutomationState(sub.email, 'welcome_series', { step: state.step + 1 });
     sent += 1;
   }
@@ -60,7 +61,7 @@ async function runSunsetWinback(flow, subscribers) {
     if (idleDays < step.delayDays) continue;
 
     if (step.subject) {
-      await sendEmail({ to: sub.email, subject: step.subject, html: step.html, fromName: process.env.SES_FROM_NAME || 'Smells Iconic', unsubToken: sub.unsubToken });
+      await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
       sent += 1;
     } else {
       await suppressByEmail(sub.email, 'sunset');
@@ -69,6 +70,32 @@ async function runSunsetWinback(flow, subscribers) {
     await updateAutomationState(sub.email, 'sunset_winback', { step: state.step + 1 });
   }
   return { sent, suppressed };
+}
+
+// checkoutStartedAt is cleared to null by subscribersStore.touchLastOrder
+// the moment an order comes in (via the orders/create Shopify webhook),
+// so a converted checkout naturally falls out of the `if
+// (!sub.checkoutStartedAt) continue` guard below without any extra
+// bookkeeping here.
+async function runAbandonedCheckout(flow, subscribers) {
+  if (!flow.enabled) return 0;
+  let sent = 0;
+  const now = Date.now();
+
+  for (const sub of subscribers) {
+    if (sub.status !== 'subscribed' || !sub.checkoutStartedAt) continue;
+    const state = sub.automationState?.abandoned_checkout || { step: 0 };
+    if (state.step >= flow.steps.length) continue;
+
+    const step = flow.steps[state.step];
+    const dueAt = sub.checkoutStartedAt + step.delayHours * HOUR_MS;
+    if (now < dueAt) continue;
+
+    await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
+    await updateAutomationState(sub.email, 'abandoned_checkout', { step: state.step + 1 });
+    sent += 1;
+  }
+  return sent;
 }
 
 export default async function handler(req, res) {
@@ -81,11 +108,13 @@ export default async function handler(req, res) {
     const [automations, subscribers] = await Promise.all([getAutomations(), getSubscribers()]);
     const welcome = automations.find((a) => a.id === 'welcome_series');
     const sunset = automations.find((a) => a.id === 'sunset_winback');
+    const abandonedCheckout = automations.find((a) => a.id === 'abandoned_checkout');
 
     const welcomeSent = welcome ? await runWelcomeSeries(welcome, subscribers) : 0;
     const sunsetResult = sunset ? await runSunsetWinback(sunset, subscribers) : { sent: 0, suppressed: 0 };
+    const abandonedCheckoutSent = abandonedCheckout ? await runAbandonedCheckout(abandonedCheckout, subscribers) : 0;
 
-    return res.status(200).json({ ok: true, welcomeSent, ...sunsetResult });
+    return res.status(200).json({ ok: true, welcomeSent, abandonedCheckoutSent, ...sunsetResult });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

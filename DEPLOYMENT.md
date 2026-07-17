@@ -24,6 +24,15 @@ it, only `/api/email/*` routes error until it's configured.
 
 ### 3a. Verify a sending domain in SES
 
+Steps 1-2 below can be done either directly in the SES console, or from
+this app's own **Settings** section (`/admin` → Settings → "Verify a
+sending domain") once `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are set
+— it creates the identity and shows you the 3 DKIM CNAME records the same
+way the console does, plus a "Check status" button so you don't need to
+go back to AWS to confirm verification landed. Steps 3-4 (MAIL FROM
+domain, DMARC) still have to be done directly at your DNS provider either
+way.
+
 1. SES console → **Verified identities → Create identity → Domain**. Use
    a subdomain, e.g. `mail.smellsiconic.com` (keeps email DNS separate
    from a storefront's web/MX records).
@@ -57,8 +66,14 @@ sandbox first using your own verified inbox as the recipient.
 
 ### 3d. IAM credentials
 
-IAM user/role with `ses:SendEmail` scoped to your verified identity → its
-access key goes in `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
+IAM user/role with `ses:SendEmail`, `ses:CreateEmailIdentity`,
+`ses:GetEmailIdentity`, and `ses:GetAccount` — the last three power the
+Settings/Deliverability-checklist domain verification flow (3a) and the
+production-access status check; without them the app still sends fine,
+those specific checks just show as unavailable. Scope `ses:SendEmail` to
+your verified identity; the identity-management actions typically need to
+be unscoped (`Resource: "*"`) since they operate before an identity
+exists yet. Access key goes in `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
 
 ## Step 4: Sync customers from Shopify
 
@@ -122,13 +137,45 @@ backfill manually:
 3. On the storefront, point its signup form at
    `<this-app-url>/api/email/subscribe`.
 
-## Step 6: Automations cron
+## Step 6: Crons (automations + scheduled sends)
 
-`vercel.json` schedules `/api/cron/automations` once daily — **Vercel's
-Hobby plan only allows daily cron**, fine for the welcome series' day
-granularity but coarse for anything faster. On Hobby and want finer
-timing? Use an external pinger (e.g. cron-job.org) hitting the same URL
-hourly with header `Authorization: Bearer <CRON_SECRET>`.
+`vercel.json` schedules both `/api/cron/automations` and
+`/api/cron/send-scheduled-campaigns` once daily — **Vercel's Hobby plan
+only allows daily cron**. Daily is fine for the welcome-series/sunset
+flows' day granularity, but two things specifically want much finer
+timing:
+
+- **Scheduled campaigns** — a campaign scheduled for 9am landing whenever
+  the daily cron happens to run defeats the point of scheduling it.
+- **The abandoned-checkout automation** — its steps are timed in *hours*
+  (1h, 24h), not days; a cart-recovery email arriving a day late is close
+  to useless.
+
+If you're on Hobby, strongly consider an external pinger (e.g.
+cron-job.org) hitting both routes hourly with header `Authorization:
+Bearer <CRON_SECRET>`, in addition to or instead of the daily
+`vercel.json` entries.
+
+## Step 7: Cart + abandoned-checkout tracking pixel
+
+Only tracks logged-in Shopify customers (identified by email) — see
+`lib/subscribersStore.js`'s `updateCartActivity`/`recordCheckoutStarted`
+and `public/track.js` for why anonymous/guest carts aren't tracked in
+this pass.
+
+1. In your Shopify theme (**Online Store → Themes → Edit code** →
+   `theme.liquid`), add just before `</body>`:
+   ```html
+   <script src="https://<this-app-url>/track.js" data-email="{{ customer.email }}" async></script>
+   ```
+2. That's it — no other configuration. The script reads Shopify's own
+   `/cart.js` AJAX endpoint (works with any theme) and posts to this
+   deployment's `/api/track/cart` and `/api/track/checkout-started`,
+   same-origin relative to wherever `track.js` was loaded from.
+3. Confirm `ALLOWED_ORIGINS` (Step 5) includes the storefront's origin —
+   the tracking endpoints use the same CORS allowlist as the signup form.
+4. Enable/disable or edit the **Abandoned checkout** automation from
+   `/admin` like the other two flows.
 
 ## Troubleshooting
 
@@ -152,3 +199,11 @@ hourly with header `Authorization: Bearer <CRON_SECRET>`.
 
 **"Shopify token exchange failed: 401" or "403":**
 - `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` don't match, or the app isn't installed on the store named in `SHOPIFY_STORE_DOMAIN` — re-check Step 4a. The access token this exchange returns is only valid ~24h; that refresh happens automatically in `lib/shopify.js`, so this error means the exchange itself is failing, not an expired token
+
+**Deliverability checklist shows domain verification / production access as unavailable ("…"):**
+- The IAM credentials are missing the identity-management scopes — see Step 3d
+
+**Cart/checkout events aren't showing up on subscribers:**
+- Confirm the `<script>` tag in Step 7 is actually rendering `data-email` with a real address (view page source while logged in) — logged-out visitors are silently skipped by design
+- Confirm the email matches an *existing* subscriber — the tracking endpoints intentionally no-op for unknown emails, same as the rest of this app
+- Check the browser console on the storefront for a CORS error, same fix as the signup form's CORS troubleshooting entry above
