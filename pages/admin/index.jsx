@@ -13,6 +13,13 @@ const TABS = [
   { id: 'campaigns', label: 'Campaigns' },
   { id: 'automations', label: 'Automations' },
 ];
+const FLOW_DESCRIPTIONS = {
+  welcome_series: 'Fires when a subscriber confirms (double opt-in) or syncs in already consented from Shopify.',
+  sunset_winback: 'Fires when a subscriber goes quiet — win-back attempt, then auto-suppress if still inactive.',
+  abandoned_checkout: 'Fires when the on-site tracking pixel reports a started checkout with no order since.',
+  add_to_cart: 'Fires for cart activity that never reached checkout — softer than abandoned checkout.',
+  order_received: 'Fires on every completed order — a thank-you, not a receipt (Shopify sends that separately).',
+};
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -36,6 +43,8 @@ export default function AdminDashboard() {
   const [sesIdentityLoading, setSesIdentityLoading] = React.useState(false);
   const [scheduleAt, setScheduleAt] = React.useState('');
   const [activeTab, setActiveTab] = React.useState('overview');
+  const [automationMessage, setAutomationMessage] = React.useState({});
+  const [previewOpen, setPreviewOpen] = React.useState({});
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -242,6 +251,89 @@ export default function AdminDashboard() {
     });
     const data = await res.json();
     if (res.ok) setAutomations((prev) => prev.map((a) => (a.id === automation.id ? data.automation : a)));
+  };
+
+  // Edits are applied to local state immediately (so the block editor
+  // and preview feel live) and only PUT to the server when "Save
+  // changes" is clicked — same pattern as the campaign composer, just
+  // addressed by automationId + stepIndex instead of a single draft.
+  const updateAutomationStep = (automationId, stepIndex, patch) => {
+    setAutomations((prev) =>
+      prev.map((a) => {
+        if (a.id !== automationId) return a;
+        const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, ...patch } : s));
+        return { ...a, steps };
+      })
+    );
+  };
+
+  const updateStepBlock = (automationId, stepIndex, blockId, patch) => {
+    setAutomations((prev) =>
+      prev.map((a) => {
+        if (a.id !== automationId) return a;
+        const steps = a.steps.map((s, i) =>
+          i === stepIndex ? { ...s, blocks: s.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) } : s
+        );
+        return { ...a, steps };
+      })
+    );
+  };
+
+  const addStepBlock = (automationId, stepIndex, type) => {
+    setAutomations((prev) =>
+      prev.map((a) => {
+        if (a.id !== automationId) return a;
+        const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, blocks: [...(s.blocks || []), createBlock(type)] } : s));
+        return { ...a, steps };
+      })
+    );
+  };
+
+  const removeStepBlock = (automationId, stepIndex, blockId) => {
+    setAutomations((prev) =>
+      prev.map((a) => {
+        if (a.id !== automationId) return a;
+        const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, blocks: s.blocks.filter((b) => b.id !== blockId) } : s));
+        return { ...a, steps };
+      })
+    );
+  };
+
+  const moveStepBlock = (automationId, stepIndex, blockId, direction) => {
+    setAutomations((prev) =>
+      prev.map((a) => {
+        if (a.id !== automationId) return a;
+        const steps = a.steps.map((s, i) => {
+          if (i !== stepIndex) return s;
+          const blocks = [...s.blocks];
+          const idx = blocks.findIndex((b) => b.id === blockId);
+          const swapWith = idx + direction;
+          if (swapWith < 0 || swapWith >= blocks.length) return s;
+          [blocks[idx], blocks[swapWith]] = [blocks[swapWith], blocks[idx]];
+          return { ...s, blocks };
+        });
+        return { ...a, steps };
+      })
+    );
+  };
+
+  const handleSaveAutomationSteps = async (automation) => {
+    const res = await fetch('/api/admin/email/automations', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: automation.id, steps: automation.steps }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Failed to save.');
+      return;
+    }
+    setAutomations((prev) => prev.map((a) => (a.id === automation.id ? data.automation : a)));
+    setAutomationMessage((prev) => ({ ...prev, [automation.id]: 'Saved.' }));
+  };
+
+  const togglePreview = (key) => {
+    setPreviewOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleLogout = async () => {
@@ -687,19 +779,77 @@ export default function AdminDashboard() {
         <>
         <Section title="Automations">
           {automations.map((a) => (
-            <div key={a.id} style={{ paddingBottom: 20, marginBottom: 20, borderBottom: `1px solid ${T.line}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div key={a.id} style={{ paddingBottom: 24, marginBottom: 24, borderBottom: `1px solid ${T.line}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <strong style={{ fontSize: 14 }}>{a.name}</strong>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: T.soft }}>
                   <input type="checkbox" checked={a.enabled} onChange={() => handleToggleAutomation(a)} />
                   Enabled
                 </label>
               </div>
-              {a.steps.map((step, i) => (
-                <div key={i} style={{ fontSize: 12, color: T.soft, marginTop: 4 }}>
-                  {step.delayHours != null ? `Hour ${step.delayHours}` : `Day ${step.delayDays}`}: {step.subject || '(suppress if still inactive)'}
-                </div>
-              ))}
+              {FLOW_DESCRIPTIONS[a.id] && <p style={{ fontSize: 12, color: T.soft, marginBottom: 16 }}>{FLOW_DESCRIPTIONS[a.id]}</p>}
+
+              {a.steps.map((step, i) => {
+                const isSuppress = !step.subject;
+                const previewKey = `${a.id}-${i}`;
+                return (
+                  <div key={i} style={blockCard}>
+                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: isSuppress ? 0 : 12 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, flexShrink: 0 }}>
+                        {step.delayHours != null ? `Hour ${step.delayHours}` : `Day ${step.delayDays}`}
+                      </span>
+                      {isSuppress ? (
+                        <span style={{ fontSize: 12, color: T.soft }}>Suppresses the subscriber instead of sending</span>
+                      ) : (
+                        <input
+                          value={step.subject}
+                          onChange={(e) => updateAutomationStep(a.id, i, { subject: e.target.value })}
+                          style={{ ...formInput, flex: 1 }}
+                          placeholder="Subject"
+                        />
+                      )}
+                    </div>
+
+                    {!isSuppress && (
+                      <>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                          <button type="button" onClick={() => addStepBlock(a.id, i, 'text')} style={S.btnOutline}>+ Text</button>
+                          <button type="button" onClick={() => addStepBlock(a.id, i, 'image')} style={S.btnOutline}>+ Image</button>
+                          <button type="button" onClick={() => addStepBlock(a.id, i, 'button')} style={S.btnOutline}>+ Button</button>
+                          <button type="button" onClick={() => togglePreview(previewKey)} style={S.btnOutline}>
+                            {previewOpen[previewKey] ? 'Hide preview' : 'Preview'}
+                          </button>
+                        </div>
+
+                        {(step.blocks || []).map((block, bi) => (
+                          <BlockCard
+                            key={block.id}
+                            block={block}
+                            isFirst={bi === 0}
+                            isLast={bi === step.blocks.length - 1}
+                            onChange={(patch) => updateStepBlock(a.id, i, block.id, patch)}
+                            onRemove={() => removeStepBlock(a.id, i, block.id)}
+                            onMove={(dir) => moveStepBlock(a.id, i, block.id, dir)}
+                          />
+                        ))}
+
+                        {previewOpen[previewKey] && (
+                          <iframe
+                            title={`${a.id} step ${i} preview`}
+                            srcDoc={renderBlocksToHtml(step.blocks, settings || {}, { preview: true })}
+                            style={{ width: '100%', height: 320, border: `1px solid ${T.line}`, marginTop: 10, background: T.paper }}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
+                <button type="button" onClick={() => handleSaveAutomationSteps(a)} style={S.btnFill}>Save changes</button>
+                {automationMessage[a.id] && <span style={{ fontSize: 12, color: T.ink }}>{automationMessage[a.id]}</span>}
+              </div>
             </div>
           ))}
         </Section>

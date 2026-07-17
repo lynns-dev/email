@@ -8,16 +8,34 @@
 // lastActivityAt (last click) rather than opens, since Apple Mail Privacy
 // Protection makes "opened" true for most of a list within seconds
 // regardless of whether anyone looked — see lib/emailEngagement.js.
+// abandoned_checkout/add_to_cart/order_received are timed off the
+// tracking-pixel/webhook signals recorded in lib/subscribersStore.js.
 
 import { getAutomations } from '../../../lib/automationsStore';
 import { getSubscribers, updateAutomationState, suppressByEmail } from '../../../lib/subscribersStore';
+import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
+import { renderBlocksToHtml } from '../../../lib/emailBlocks';
 import { sendEmail } from '../../../lib/sesEmail';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-async function runWelcomeSeries(flow, subscribers) {
+// Automation steps store `blocks` (lib/emailBlocks.js), same as
+// campaigns, so they get the account's logo/footer/font automatically —
+// but unlike campaigns, automation sends don't go through
+// lib/emailSend.js's wrapLinksForSend/personalizeSendHtml pipeline (no
+// per-campaign click tracking here), so the {{UNSUB_URL}} placeholder
+// the footer leaves behind has to be filled in directly.
+function renderStepHtml(step, settings, unsubUrl) {
+  return renderBlocksToHtml(step.blocks, settings).replace(/{{UNSUB_URL}}/g, unsubUrl);
+}
+
+function unsubUrlFor(sub) {
+  return `${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/email/unsubscribe?token=${sub.unsubToken}`;
+}
+
+async function runWelcomeSeries(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
@@ -31,14 +49,14 @@ async function runWelcomeSeries(flow, subscribers) {
     const dueAt = sub.confirmedAt + step.delayDays * DAY_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
+    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
     await updateAutomationState(sub.email, 'welcome_series', { step: state.step + 1 });
     sent += 1;
   }
   return sent;
 }
 
-async function runSunsetWinback(flow, subscribers) {
+async function runSunsetWinback(flow, subscribers, settings) {
   if (!flow.enabled) return { sent: 0, suppressed: 0 };
   let sent = 0;
   let suppressed = 0;
@@ -61,7 +79,7 @@ async function runSunsetWinback(flow, subscribers) {
     if (idleDays < step.delayDays) continue;
 
     if (step.subject) {
-      await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
+      await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
       sent += 1;
     } else {
       await suppressByEmail(sub.email, 'sunset');
@@ -77,7 +95,7 @@ async function runSunsetWinback(flow, subscribers) {
 // so a converted checkout naturally falls out of the `if
 // (!sub.checkoutStartedAt) continue` guard below without any extra
 // bookkeeping here.
-async function runAbandonedCheckout(flow, subscribers) {
+async function runAbandonedCheckout(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
@@ -91,8 +109,57 @@ async function runAbandonedCheckout(flow, subscribers) {
     const dueAt = sub.checkoutStartedAt + step.delayHours * HOUR_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: step.html, unsubToken: sub.unsubToken });
+    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
     await updateAutomationState(sub.email, 'abandoned_checkout', { step: state.step + 1 });
+    sent += 1;
+  }
+  return sent;
+}
+
+// Fires for cart activity that never reached checkout — a softer signal
+// than abandoned_checkout, so it's superseded (not just skipped) the
+// moment they do start a checkout; see subscribersStore.recordCheckoutStarted.
+async function runAddToCart(flow, subscribers, settings) {
+  if (!flow.enabled) return 0;
+  let sent = 0;
+  const now = Date.now();
+
+  for (const sub of subscribers) {
+    if (sub.status !== 'subscribed' || !sub.cartUpdatedAt) continue;
+    const state = sub.automationState?.add_to_cart || { step: 0 };
+    if (state.step >= flow.steps.length) continue;
+
+    const step = flow.steps[state.step];
+    const dueAt = sub.cartUpdatedAt + step.delayHours * HOUR_MS;
+    if (now < dueAt) continue;
+
+    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    await updateAutomationState(sub.email, 'add_to_cart', { step: state.step + 1 });
+    sent += 1;
+  }
+  return sent;
+}
+
+// Not a transactional receipt (Shopify sends that) — a marketing-toned
+// thank-you + later review/repeat-purchase nudge, timed off lastOrderAt.
+// subscribersStore.touchLastOrder resets this to step 0 on every new
+// order, so a repeat customer gets a fresh cycle each time.
+async function runOrderReceived(flow, subscribers, settings) {
+  if (!flow.enabled) return 0;
+  let sent = 0;
+  const now = Date.now();
+
+  for (const sub of subscribers) {
+    if (sub.status !== 'subscribed' || !sub.lastOrderAt) continue;
+    const state = sub.automationState?.order_received || { step: 0 };
+    if (state.step >= flow.steps.length) continue;
+
+    const step = flow.steps[state.step];
+    const dueAt = sub.lastOrderAt + step.delayHours * HOUR_MS;
+    if (now < dueAt) continue;
+
+    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    await updateAutomationState(sub.email, 'order_received', { step: state.step + 1 });
     sent += 1;
   }
   return sent;
@@ -105,16 +172,23 @@ export default async function handler(req, res) {
   }
 
   try {
-    const [automations, subscribers] = await Promise.all([getAutomations(), getSubscribers()]);
-    const welcome = automations.find((a) => a.id === 'welcome_series');
-    const sunset = automations.find((a) => a.id === 'sunset_winback');
-    const abandonedCheckout = automations.find((a) => a.id === 'abandoned_checkout');
+    const [automations, subscribers, settings] = await Promise.all([getAutomations(), getSubscribers(), getSettings()]);
+    const byId = (id) => automations.find((a) => a.id === id);
 
-    const welcomeSent = welcome ? await runWelcomeSeries(welcome, subscribers) : 0;
-    const sunsetResult = sunset ? await runSunsetWinback(sunset, subscribers) : { sent: 0, suppressed: 0 };
-    const abandonedCheckoutSent = abandonedCheckout ? await runAbandonedCheckout(abandonedCheckout, subscribers) : 0;
+    const welcomeSent = await runWelcomeSeries(byId('welcome_series') || { enabled: false }, subscribers, settings);
+    const sunsetResult = await runSunsetWinback(byId('sunset_winback') || { enabled: false }, subscribers, settings);
+    const abandonedCheckoutSent = await runAbandonedCheckout(byId('abandoned_checkout') || { enabled: false }, subscribers, settings);
+    const addToCartSent = await runAddToCart(byId('add_to_cart') || { enabled: false }, subscribers, settings);
+    const orderReceivedSent = await runOrderReceived(byId('order_received') || { enabled: false }, subscribers, settings);
 
-    return res.status(200).json({ ok: true, welcomeSent, abandonedCheckoutSent, ...sunsetResult });
+    return res.status(200).json({
+      ok: true,
+      welcomeSent,
+      abandonedCheckoutSent,
+      addToCartSent,
+      orderReceivedSent,
+      ...sunsetResult,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

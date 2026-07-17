@@ -174,8 +174,12 @@ this pass.
    same-origin relative to wherever `track.js` was loaded from.
 3. Confirm `ALLOWED_ORIGINS` (Step 5) includes the storefront's origin —
    the tracking endpoints use the same CORS allowlist as the signup form.
-4. Enable/disable or edit the **Abandoned checkout** automation from
-   `/admin` like the other two flows.
+4. This pixel feeds two flows — **Add to cart** (cart activity that never
+   reached checkout) and **Abandoned checkout** (checkout started, no
+   order since). Both, plus **Order received** (fires on every completed
+   order via the existing `orders/create` webhook, no extra setup), are
+   editable from `/admin` → Automations — subject, content blocks, and
+   delay per step, using the same block editor as campaigns.
 
 ## Troubleshooting
 
