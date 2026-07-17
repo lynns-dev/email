@@ -5,6 +5,14 @@ import { T, S } from '../../lib/theme';
 import { createBlock, renderBlocksToHtml, EMAIL_FONTS } from '../../lib/emailBlocks';
 
 const BLOCK_LABELS = { text: 'Text', image: 'Image', button: 'Button' };
+const TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'settings', label: 'Settings' },
+  { id: 'shopify', label: 'Shopify' },
+  { id: 'subscribers', label: 'Subscribers' },
+  { id: 'campaigns', label: 'Campaigns' },
+  { id: 'automations', label: 'Automations' },
+];
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -27,6 +35,7 @@ export default function AdminDashboard() {
   const [sesIdentity, setSesIdentity] = React.useState(null);
   const [sesIdentityLoading, setSesIdentityLoading] = React.useState(false);
   const [scheduleAt, setScheduleAt] = React.useState('');
+  const [activeTab, setActiveTab] = React.useState('overview');
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -317,17 +326,31 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: T.paper, padding: '32px 24px 80px' }}>
+    <div style={{ minHeight: '100vh', background: T.paper }}>
       <Head>
         <title>Email platform admin</title>
       </Head>
 
-      <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-          <span style={{ fontSize: 18, fontWeight: 700 }}>Email platform</span>
-          <button onClick={handleLogout} style={S.btnOutline}>Sign out</button>
-        </div>
+      <div style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
+        <aside style={sidebar}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 28 }}>Email platform</div>
+          <nav>
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{ ...sidebarLink, ...(activeTab === tab.id ? sidebarLinkActive : {}) }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <button onClick={handleLogout} style={{ ...S.btnOutline, width: '100%', justifyContent: 'center', marginTop: 24 }}>Sign out</button>
+        </aside>
 
+        <main style={{ flex: 1, padding: '32px 24px 80px', minWidth: 0 }}>
+        {activeTab === 'overview' && (
+        <>
         <Section title="Analytics">
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <div style={gradeTile}>
@@ -365,7 +388,11 @@ export default function AdminDashboard() {
             </div>
           </Section>
         )}
+        </>
+        )}
 
+        {activeTab === 'settings' && (
+        <>
         <Section title="Deliverability checklist">
           <div>
             <ChecklistRow ok={sesIdentity?.verified} label="Sending domain verified (DKIM)" busy={sesIdentityLoading} />
@@ -445,7 +472,11 @@ export default function AdminDashboard() {
             )}
           </div>
         </Section>
+        </>
+        )}
 
+        {activeTab === 'shopify' && (
+        <>
         <Section title="Shopify sync">
           <p style={{ color: T.soft, fontSize: 14, marginBottom: 16 }}>
             Pulls in every Shopify customer whose email marketing consent is currently subscribed. Customers who aren't opted in are skipped, not imported.
@@ -455,7 +486,11 @@ export default function AdminDashboard() {
           </button>
           {shopifySyncResult && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{shopifySyncResult}</span>}
         </Section>
+        </>
+        )}
 
+        {activeTab === 'subscribers' && (
+        <>
         <Section
           title={`Subscribers (${subscribers.length})`}
           action={<a href="/api/admin/email/subscribers?format=csv" style={S.btnOutline}>Export CSV</a>}
@@ -489,7 +524,11 @@ export default function AdminDashboard() {
             </div>
           )}
         </Section>
+        </>
+        )}
 
+        {activeTab === 'campaigns' && (
+        <>
         <Section title={`Templates (${templates.length})`}>
           {templates.length === 0 ? (
             <p style={{ color: T.soft, fontSize: 14 }}>No saved templates yet — build a campaign below, then "Save as template" to reuse it later.</p>
@@ -641,7 +680,11 @@ export default function AdminDashboard() {
             {campaignFormMessage && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{campaignFormMessage}</span>}
           </form>
         </Section>
+        </>
+        )}
 
+        {activeTab === 'automations' && (
+        <>
         <Section title="Automations">
           {automations.map((a) => (
             <div key={a.id} style={{ paddingBottom: 20, marginBottom: 20, borderBottom: `1px solid ${T.line}` }}>
@@ -660,6 +703,9 @@ export default function AdminDashboard() {
             </div>
           ))}
         </Section>
+        </>
+        )}
+        </main>
       </div>
     </div>
   );
@@ -756,3 +802,13 @@ const iconBtn = {
   width: 26, height: 26, border: `1px solid ${T.line}`, background: T.white, cursor: 'pointer',
   fontSize: 12, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
 };
+const sidebar = {
+  width: 200, flexShrink: 0, padding: '32px 16px', borderRight: `1px solid ${T.line}`,
+  position: 'sticky', top: 0, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
+};
+const sidebarLink = {
+  display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', marginBottom: 2,
+  background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer',
+  fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.soft,
+};
+const sidebarLinkActive = { background: T.ink, color: T.white };
