@@ -2,6 +2,9 @@ import React from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { T, S } from '../../lib/theme';
+import { createBlock, renderBlocksToHtml } from '../../lib/emailBlocks';
+
+const BLOCK_LABELS = { text: 'Text', image: 'Image', button: 'Button' };
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -9,9 +12,12 @@ export default function AdminDashboard() {
   const [gradeSummary, setGradeSummary] = React.useState(null);
   const [campaigns, setCampaigns] = React.useState([]);
   const [automations, setAutomations] = React.useState([]);
-  const [campaignForm, setCampaignForm] = React.useState({ subject: '', fromName: '', segment: 'all', html: '' });
+  const [campaignForm, setCampaignForm] = React.useState({ subject: '', fromName: '', segment: 'all', blocks: [] });
   const [campaignFormMessage, setCampaignFormMessage] = React.useState('');
   const [sendingCampaignId, setSendingCampaignId] = React.useState(null);
+  const [templates, setTemplates] = React.useState([]);
+  const [templateName, setTemplateName] = React.useState('');
+  const [templateMessage, setTemplateMessage] = React.useState('');
   const [shopifySyncing, setShopifySyncing] = React.useState(false);
   const [shopifySyncResult, setShopifySyncResult] = React.useState('');
 
@@ -33,11 +39,16 @@ export default function AdminDashboard() {
     fetch('/api/admin/email/automations').then((r) => r.json()).then((data) => setAutomations(data.automations || [])).catch(() => {});
   }, []);
 
+  const loadTemplates = React.useCallback(() => {
+    fetch('/api/admin/email/templates').then((r) => r.json()).then((data) => setTemplates(data.templates || [])).catch(() => {});
+  }, []);
+
   React.useEffect(() => {
     loadSubscribers();
     loadCampaigns();
     loadAutomations();
-  }, [loadSubscribers, loadCampaigns, loadAutomations]);
+    loadTemplates();
+  }, [loadSubscribers, loadCampaigns, loadAutomations, loadTemplates]);
 
   const handleSuppressSubscriber = async (email) => {
     if (!confirm(`Suppress ${email}? They will never receive an email again.`)) return;
@@ -63,8 +74,74 @@ export default function AdminDashboard() {
       return;
     }
     setCampaigns((prev) => [...prev, data.campaign]);
-    setCampaignForm({ subject: '', fromName: '', segment: 'all', html: '' });
+    setCampaignForm({ subject: '', fromName: '', segment: 'all', blocks: [] });
     setCampaignFormMessage('Draft saved.');
+  };
+
+  const handleAddBlock = (type) => {
+    setCampaignForm((prev) => ({ ...prev, blocks: [...prev.blocks, createBlock(type)] }));
+  };
+
+  const handleUpdateBlock = (id, patch) => {
+    setCampaignForm((prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)),
+    }));
+  };
+
+  const handleRemoveBlock = (id) => {
+    setCampaignForm((prev) => ({ ...prev, blocks: prev.blocks.filter((b) => b.id !== id) }));
+  };
+
+  const handleMoveBlock = (id, direction) => {
+    setCampaignForm((prev) => {
+      const blocks = [...prev.blocks];
+      const idx = blocks.findIndex((b) => b.id === id);
+      const swapWith = idx + direction;
+      if (swapWith < 0 || swapWith >= blocks.length) return prev;
+      [blocks[idx], blocks[swapWith]] = [blocks[swapWith], blocks[idx]];
+      return { ...prev, blocks };
+    });
+  };
+
+  const handleSaveTemplate = async () => {
+    setTemplateMessage('');
+    const res = await fetch('/api/admin/email/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: templateName, blocks: campaignForm.blocks }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setTemplateMessage(data.error || 'Failed to save template.');
+      return;
+    }
+    setTemplates((prev) => [...prev, data.template]);
+    setTemplateName('');
+    setTemplateMessage('Template saved.');
+  };
+
+  const handleUseTemplate = (templateId) => {
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) return;
+    // Fresh block ids so editing this campaign never mutates the saved
+    // template — it's a copy, same as starting a campaign from any ESP's
+    // template library.
+    setCampaignForm((prev) => ({
+      ...prev,
+      blocks: template.blocks.map((b) => ({ ...b, id: createBlock(b.type).id })),
+    }));
+  };
+
+  const handleDeleteTemplate = async (id) => {
+    if (!confirm('Delete this template?')) return;
+    const res = await fetch('/api/admin/email/templates', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const data = await res.json();
+    if (res.ok) setTemplates(data.templates);
   };
 
   const handleDeleteCampaign = async (id) => {
@@ -199,6 +276,19 @@ export default function AdminDashboard() {
           )}
         </Section>
 
+        <Section title={`Templates (${templates.length})`}>
+          {templates.length === 0 ? (
+            <p style={{ color: T.soft, fontSize: 14 }}>No saved templates yet — build a campaign below, then "Save as template" to reuse it later.</p>
+          ) : (
+            templates.map((t) => (
+              <div key={t.id} style={listRow}>
+                <div style={{ flex: 1, fontSize: 14 }}>{t.name} <span style={{ color: T.soft, fontSize: 12 }}>({t.blocks.length} block{t.blocks.length === 1 ? '' : 's'})</span></div>
+                <button onClick={() => handleDeleteTemplate(t.id)} style={deleteBtn}>Delete</button>
+              </div>
+            ))
+          )}
+        </Section>
+
         <Section title={`Campaigns (${campaigns.length})`}>
           {campaigns.length > 0 && (
             <div style={{ marginBottom: 24 }}>
@@ -257,26 +347,66 @@ export default function AdminDashboard() {
                 </select>
               </div>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={formLabel}>Email body (HTML)</label>
-              <textarea
-                value={campaignForm.html}
-                onChange={(e) => setCampaignForm({ ...campaignForm, html: e.target.value })}
-                style={{ ...formInput, height: 160, padding: 12, fontFamily: 'monospace', fontSize: 13 }}
-                required
-              />
-            </div>
-            {campaignForm.html && (
-              <div style={{ marginBottom: 12 }}>
+            {templates.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={formLabel}>Start from template</label>
+                <select defaultValue="" onChange={(e) => e.target.value && handleUseTemplate(e.target.value)} style={{ ...formInput, width: 260 }}>
+                  <option value="">— none —</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 320 }}>
+                <label style={formLabel}>Content</label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  <button type="button" onClick={() => handleAddBlock('text')} style={S.btnOutline}>+ Text</button>
+                  <button type="button" onClick={() => handleAddBlock('image')} style={S.btnOutline}>+ Image</button>
+                  <button type="button" onClick={() => handleAddBlock('button')} style={S.btnOutline}>+ Button</button>
+                </div>
+
+                {campaignForm.blocks.length === 0 ? (
+                  <p style={{ color: T.soft, fontSize: 13 }}>No blocks yet — add text, an image, or a button above.</p>
+                ) : (
+                  campaignForm.blocks.map((block, i) => (
+                    <BlockCard
+                      key={block.id}
+                      block={block}
+                      isFirst={i === 0}
+                      isLast={i === campaignForm.blocks.length - 1}
+                      onChange={(patch) => handleUpdateBlock(block.id, patch)}
+                      onRemove={() => handleRemoveBlock(block.id)}
+                      onMove={(dir) => handleMoveBlock(block.id, dir)}
+                    />
+                  ))
+                )}
+
+                <div style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    placeholder="Template name"
+                    value={templateName}
+                    onChange={(e) => setTemplateName(e.target.value)}
+                    style={{ ...formInput, width: 180 }}
+                  />
+                  <button type="button" onClick={handleSaveTemplate} disabled={!templateName.trim() || campaignForm.blocks.length === 0} style={S.btnOutline}>
+                    Save as template
+                  </button>
+                  {templateMessage && <span style={{ fontSize: 12, color: T.ink }}>{templateMessage}</span>}
+                </div>
+              </div>
+
+              <div style={{ flex: 1, minWidth: 280 }}>
                 <label style={formLabel}>Preview</label>
                 <iframe
                   title="Campaign preview"
-                  srcDoc={campaignForm.html}
-                  style={{ width: '100%', height: 200, border: `1px solid ${T.line}`, background: T.white }}
+                  srcDoc={renderBlocksToHtml(campaignForm.blocks)}
+                  style={{ width: '100%', height: 420, border: `1px solid ${T.line}`, background: T.paper }}
                 />
               </div>
-            )}
-            <button type="submit" style={S.btnFill}>Save draft</button>
+            </div>
+
+            <button type="submit" style={{ ...S.btnFill, marginTop: 16 }}>Save draft</button>
             {campaignFormMessage && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{campaignFormMessage}</span>}
           </form>
         </Section>
@@ -300,6 +430,53 @@ export default function AdminDashboard() {
           ))}
         </Section>
       </div>
+    </div>
+  );
+}
+
+function BlockCard({ block, isFirst, isLast, onChange, onRemove, onMove }) {
+  return (
+    <div style={blockCard}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft }}>{BLOCK_LABELS[block.type]}</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button type="button" onClick={() => onMove(-1)} disabled={isFirst} style={iconBtn}>↑</button>
+          <button type="button" onClick={() => onMove(1)} disabled={isLast} style={iconBtn}>↓</button>
+          <button type="button" onClick={onRemove} style={{ ...iconBtn, color: '#b3261e' }}>✕</button>
+        </div>
+      </div>
+
+      {block.type === 'text' && (
+        <>
+          <textarea
+            placeholder="Paragraph text…"
+            value={block.content}
+            onChange={(e) => onChange({ content: e.target.value })}
+            style={{ ...formInput, height: 80, padding: 10 }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input placeholder="Link text (optional)" value={block.linkText} onChange={(e) => onChange({ linkText: e.target.value })} style={{ ...formInput, flex: 1 }} />
+            <input placeholder="Link URL" value={block.linkUrl} onChange={(e) => onChange({ linkUrl: e.target.value })} style={{ ...formInput, flex: 1 }} />
+          </div>
+        </>
+      )}
+
+      {block.type === 'image' && (
+        <>
+          <input placeholder="Image URL" value={block.src} onChange={(e) => onChange({ src: e.target.value })} style={formInput} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <input placeholder="Alt text" value={block.alt} onChange={(e) => onChange({ alt: e.target.value })} style={{ ...formInput, flex: 1 }} />
+            <input placeholder="Link URL (optional)" value={block.linkUrl} onChange={(e) => onChange({ linkUrl: e.target.value })} style={{ ...formInput, flex: 1 }} />
+          </div>
+        </>
+      )}
+
+      {block.type === 'button' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input placeholder="Button label" value={block.label} onChange={(e) => onChange({ label: e.target.value })} style={{ ...formInput, flex: 1 }} />
+          <input placeholder="Button URL" value={block.url} onChange={(e) => onChange({ url: e.target.value })} style={{ ...formInput, flex: 1 }} />
+        </div>
+      )}
     </div>
   );
 }
@@ -332,3 +509,8 @@ const formInput = {
 };
 const formLabel = { display: 'block', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, marginBottom: 6 };
 const gradeTile = { background: T.paper, border: `1px solid ${T.line}`, padding: '14px 18px', minWidth: 90, textAlign: 'center' };
+const blockCard = { background: T.paper, border: `1px solid ${T.line}`, padding: 14, marginBottom: 10 };
+const iconBtn = {
+  width: 26, height: 26, border: `1px solid ${T.line}`, background: T.white, cursor: 'pointer',
+  fontSize: 12, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+};

@@ -1,4 +1,5 @@
 import { getCampaigns, getCampaign, createCampaign, updateCampaign, deleteCampaign } from '../../../../lib/campaignsStore';
+import { renderBlocksToHtml } from '../../../../lib/emailBlocks';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -11,11 +12,17 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { subject, fromName, html, segment } = req.body || {};
+    const { subject, fromName, blocks, segment } = req.body || {};
     if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required.' });
-    if (!html || !html.trim()) return res.status(400).json({ error: 'Email body is required.' });
+    if (!Array.isArray(blocks) || blocks.length === 0) return res.status(400).json({ error: 'Add at least one block before saving.' });
     try {
-      const campaign = await createCampaign({ subject: subject.trim(), fromName: fromName?.trim() || 'Smells Iconic', html, segment });
+      const campaign = await createCampaign({
+        subject: subject.trim(),
+        fromName: fromName?.trim() || process.env.SES_FROM_NAME || 'Store',
+        blocks,
+        html: renderBlocksToHtml(blocks),
+        segment,
+      });
       return res.status(200).json({ campaign });
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -23,14 +30,20 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'PUT') {
-    const { id, subject, fromName, html, segment } = req.body || {};
+    const { id, subject, fromName, blocks, segment } = req.body || {};
     if (!id) return res.status(400).json({ error: 'Campaign id is required.' });
     try {
       const existing = await getCampaign(id);
       if (existing && existing.status !== 'draft') {
         return res.status(400).json({ error: 'Only draft campaigns can be edited.' });
       }
-      const campaign = await updateCampaign(id, { subject, fromName, html, segment });
+      const campaign = await updateCampaign(id, {
+        subject,
+        fromName,
+        blocks,
+        html: Array.isArray(blocks) ? renderBlocksToHtml(blocks) : undefined,
+        segment,
+      });
       return res.status(200).json({ campaign });
     } catch (err) {
       return res.status(400).json({ error: err.message });
