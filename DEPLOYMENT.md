@@ -17,63 +17,48 @@ don't reuse a storefront's.
    `https://mail.smellsiconic.com`).
 3. Redeploy after adding env vars.
 
-## Step 3: Set up Amazon SES
+## Step 3: Set up Resend
 
 Nothing sends until this is done — the app builds and runs fine without
-it, only `/api/email/*` routes error until it's configured.
+it, only `/api/email/*` routes error until it's configured. No AWS
+account needed — Resend's own dashboard handles domain verification
+directly, which is most of why this app uses it instead of SES.
 
-### 3a. Verify a sending domain in SES
+### 3a. Get an API key
 
-Steps 1-2 below can be done either directly in the SES console, or from
-this app's own **Settings** section (`/admin` → Settings → "Verify a
-sending domain") once `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are set
-— it creates the identity and shows you the 3 DKIM CNAME records the same
-way the console does, plus a "Check status" button so you don't need to
-go back to AWS to confirm verification landed. Steps 3-4 (MAIL FROM
-domain, DMARC) still have to be done directly at your DNS provider either
-way.
+[Resend dashboard](https://resend.com/api-keys) → **Create API Key** →
+put it in `RESEND_API_KEY`. Also set `RESEND_FROM_EMAIL` (an address on
+the domain you'll verify next) and `RESEND_FROM_NAME`.
 
-1. SES console → **Verified identities → Create identity → Domain**. Use
-   a subdomain, e.g. `mail.smellsiconic.com` (keeps email DNS separate
-   from a storefront's web/MX records).
-2. SES issues 3 DKIM CNAME records — add all 3 at your DNS provider.
-3. Under that identity's **Custom MAIL FROM domain**, set something like
-   `bounce.mail.smellsiconic.com` and add the MX + SPF TXT records SES
-   shows. This is what makes SPF pass on the *aligned* domain — required
-   by Gmail/Yahoo's bulk-sender rules; SES's shared MAIL FROM domain alone
-   doesn't align with your From address.
-4. At your DNS root, add a DMARC record: `_dmarc.yourdomain.com` TXT
-   `v=DMARC1; p=none; rua=mailto:you@yourdomain.com`. Start at `p=none`
-   (monitor only), move to `p=quarantine` once reports look clean.
+### 3b. Verify a sending domain
 
-### 3b. Request production access
+Do this either directly in the Resend dashboard, or from this app's own
+**Settings** section (`/admin` → Settings → "Verify a sending domain")
+once `RESEND_API_KEY` is set — it creates the domain and shows you the
+DNS records to add, the same way the dashboard does, plus a "Check
+status" button so you don't need to go back to Resend to confirm
+verification landed.
 
-New SES accounts start in the sandbox: 200 emails/day, only to addresses
-you've individually verified. SES console → **Account dashboard → Request
-production access** — describe the use case (opt-in marketing emails for
-an e-commerce store) and wait for approval (usually under 24h). Test in
-sandbox first using your own verified inbox as the recipient.
+1. Resend dashboard → **Domains → Add Domain**. Use a subdomain, e.g.
+   `mail.smellsiconic.com` (keeps email DNS separate from a storefront's
+   web/MX records).
+2. Resend shows the DNS records to add (SPF + DKIM, sometimes a DMARC
+   recommendation) — add them all at your DNS provider, then click
+   **Verify** (or use Settings' "Check status" button here).
+3. If Resend doesn't recommend a DMARC record for you, add one yourself
+   at your DNS root: `_dmarc.yourdomain.com` TXT `v=DMARC1; p=none;
+   rua=mailto:you@yourdomain.com`. Start at `p=none` (monitor only), move
+   to `p=quarantine` once reports look clean.
 
 ### 3c. Bounce/complaint webhook
 
-1. **Configuration sets → Create set**.
-2. Add an **Event destination** → SNS → create a topic → subscribe it to
-   `https://<this-app-url>/api/email/ses-webhook` (HTTPS). Select Bounce
-   and Complaint events.
-3. The route confirms the SNS subscription automatically on first ping.
-4. Copy the topic ARN into `SES_SNS_TOPIC_ARN` so the webhook rejects
-   notifications from any other topic.
-
-### 3d. IAM credentials
-
-IAM user/role with `ses:SendEmail`, `ses:CreateEmailIdentity`,
-`ses:GetEmailIdentity`, and `ses:GetAccount` — the last three power the
-Settings/Deliverability-checklist domain verification flow (3a) and the
-production-access status check; without them the app still sends fine,
-those specific checks just show as unavailable. Scope `ses:SendEmail` to
-your verified identity; the identity-management actions typically need to
-be unscoped (`Resource: "*"`) since they operate before an identity
-exists yet. Access key goes in `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`.
+1. Resend dashboard → **Webhooks → Add Endpoint** →
+   `https://<this-app-url>/api/email/resend-webhook`. Subscribe to the
+   `email.bounced` and `email.complained` events.
+2. Resend shows a signing secret (starts with `whsec_`) when you create
+   the endpoint — put it in `RESEND_WEBHOOK_SECRET`. Every request is
+   verified against this; without it set, all webhook events are
+   rejected.
 
 ## Step 4: Sync customers from Shopify
 
@@ -184,9 +169,8 @@ this pass.
 ## Troubleshooting
 
 **Emails send but land in spam, or Gmail/Yahoo bulk-folder or reject them:**
-- Confirm DKIM shows "Verified" in the SES console (can take hours after adding CNAMEs)
-- Confirm the custom MAIL FROM domain's SPF TXT record is in place (Step 3a)
-- Confirm the account isn't still in the SES sandbox (Step 3b)
+- Confirm the domain shows "Verified" in the Resend dashboard (or the Deliverability checklist here) — can take a while after adding the DNS records
+- Confirm both the SPF and DKIM records Resend gave you are actually in place (Step 3b) — a partial setup (DKIM only, no SPF) is a common miss
 - Check DMARC reports for alignment failures
 
 **Storefront's signup form fails with a CORS error in the browser console:**
@@ -204,8 +188,12 @@ this pass.
 **"Shopify token exchange failed: 401" or "403":**
 - `SHOPIFY_CLIENT_ID` / `SHOPIFY_CLIENT_SECRET` don't match, or the app isn't installed on the store named in `SHOPIFY_STORE_DOMAIN` — re-check Step 4a. The access token this exchange returns is only valid ~24h; that refresh happens automatically in `lib/shopify.js`, so this error means the exchange itself is failing, not an expired token
 
-**Deliverability checklist shows domain verification / production access as unavailable ("…"):**
-- The IAM credentials are missing the identity-management scopes — see Step 3d
+**Deliverability checklist shows domain verification stuck on "…" / loading:**
+- `RESEND_API_KEY` isn't set, or is invalid — the domain-status check fails silently to a loading state rather than erroring the whole page
+
+**Resend webhook returns 403 (bounce/complaint events aren't suppressing subscribers):**
+- `RESEND_WEBHOOK_SECRET` doesn't match what's shown for that endpoint in the Resend dashboard, or is unset entirely
+- If the secret is definitely correct and it's still failing, Resend's webhook header names may have changed since this was built (see the comment in `lib/webhookVerify.js`) — check the raw request in the dashboard's webhook delivery log and compare against that file
 
 **Cart/checkout events aren't showing up on subscribers:**
 - Confirm the `<script>` tag in Step 7 is actually rendering `data-email` with a real address (view page source while logged in) — logged-out visitors are silently skipped by design

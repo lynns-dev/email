@@ -16,7 +16,7 @@ import { getSubscribers, updateAutomationState, suppressByEmail } from '../../..
 import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
 import { renderBlocksToHtml } from '../../../lib/emailBlocks';
-import { sendEmail } from '../../../lib/sesEmail';
+import { sendEmail } from '../../../lib/resendEmail';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;

@@ -20,7 +20,7 @@ export default async function handler(req, res) {
       const settings = await getSettings();
       const campaign = await createCampaign({
         subject: subject.trim(),
-        fromName: fromName?.trim() || settings.senderName || process.env.SES_FROM_NAME || 'Store',
+        fromName: fromName?.trim() || settings.senderName || process.env.RESEND_FROM_NAME || 'Store',
         blocks,
         html: renderBlocksToHtml(blocks, settings),
         segment,

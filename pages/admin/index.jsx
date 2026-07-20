@@ -39,8 +39,8 @@ export default function AdminDashboard() {
   const [settingsForm, setSettingsForm] = React.useState(null);
   const [settingsMessage, setSettingsMessage] = React.useState('');
   const [domainInput, setDomainInput] = React.useState('');
-  const [sesIdentity, setSesIdentity] = React.useState(null);
-  const [sesIdentityLoading, setSesIdentityLoading] = React.useState(false);
+  const [domainIdentity, setDomainIdentity] = React.useState(null);
+  const [domainIdentityLoading, setDomainIdentityLoading] = React.useState(false);
   const [scheduleAt, setScheduleAt] = React.useState('');
   const [activeTab, setActiveTab] = React.useState('overview');
   const [automationMessage, setAutomationMessage] = React.useState({});
@@ -101,13 +101,13 @@ export default function AdminDashboard() {
       .catch(() => {});
   }, []);
 
-  const loadSesIdentity = React.useCallback(() => {
-    setSesIdentityLoading(true);
-    fetch('/api/admin/ses-identity')
+  const loadDomainIdentity = React.useCallback(() => {
+    setDomainIdentityLoading(true);
+    fetch('/api/admin/resend-identity')
       .then((r) => r.json())
-      .then(setSesIdentity)
+      .then(setDomainIdentity)
       .catch(() => {})
-      .finally(() => setSesIdentityLoading(false));
+      .finally(() => setDomainIdentityLoading(false));
   }, []);
 
   React.useEffect(() => {
@@ -116,8 +116,8 @@ export default function AdminDashboard() {
     loadAutomations();
     loadTemplates();
     loadSettings();
-    loadSesIdentity();
-  }, [loadSubscribers, loadCampaigns, loadAutomations, loadTemplates, loadSettings, loadSesIdentity]);
+    loadDomainIdentity();
+  }, [loadSubscribers, loadCampaigns, loadAutomations, loadTemplates, loadSettings, loadDomainIdentity]);
 
   const handleSuppressSubscriber = async (email) => {
     if (!confirm(`Suppress ${email}? They will never receive an email again.`)) return;
@@ -361,9 +361,9 @@ export default function AdminDashboard() {
 
   const handleVerifyDomain = async () => {
     if (!domainInput.trim()) return;
-    setSesIdentityLoading(true);
+    setDomainIdentityLoading(true);
     try {
-      const res = await fetch('/api/admin/ses-identity', {
+      const res = await fetch('/api/admin/resend-identity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain: domainInput.trim() }),
@@ -373,10 +373,10 @@ export default function AdminDashboard() {
         alert(data.error || 'Failed to start verification.');
         return;
       }
-      setSesIdentity(data);
+      setDomainIdentity(data);
       setDomainInput('');
     } finally {
-      setSesIdentityLoading(false);
+      setDomainIdentityLoading(false);
     }
   };
 
@@ -488,9 +488,8 @@ export default function AdminDashboard() {
         <>
         <Section title="Deliverability checklist">
           <div>
-            <ChecklistRow ok={sesIdentity?.verified} label="Sending domain verified (DKIM)" busy={sesIdentityLoading} />
-            <ChecklistRow ok={sesIdentity?.account?.productionAccessEnabled} label="SES production access (out of the 200/day sandbox)" busy={sesIdentityLoading} />
-            <ChecklistRow ok={sesIdentity?.envConfigured?.configurationSet} label="Configuration set + bounce/complaint webhook configured" busy={sesIdentityLoading} />
+            <ChecklistRow ok={domainIdentity?.verified} label="Sending domain verified (DKIM + SPF)" busy={domainIdentityLoading} />
+            <ChecklistRow ok={domainIdentity?.envConfigured?.webhookSecret} label="Bounce/complaint webhook configured" busy={domainIdentityLoading} />
             <ChecklistRow ok={Boolean(settings?.physicalAddress)} label="Physical address set (required for the legal footer)" busy={!settings} />
             <ChecklistRow ok label="One-click unsubscribe headers (built in)" />
           </div>
@@ -538,28 +537,30 @@ export default function AdminDashboard() {
 
           <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${T.line}` }}>
             <label style={formLabel}>Verify a sending domain</label>
-            {sesIdentity?.domain ? (
+            {domainIdentity?.domain ? (
               <div style={{ fontSize: 13 }}>
-                <p><strong>{sesIdentity.domain}</strong> — {sesIdentity.verified ? 'Verified ✓' : `Pending (${sesIdentity.dkimStatus || 'not started'})`}</p>
-                {!sesIdentity.verified && sesIdentity.dkimTokens?.length > 0 && (
+                <p><strong>{domainIdentity.domain}</strong> — {domainIdentity.verified ? 'Verified ✓' : `Pending (${domainIdentity.status || 'not started'})`}</p>
+                {!domainIdentity.verified && domainIdentity.records?.length > 0 && (
                   <>
-                    <p style={{ color: T.soft, marginTop: 8 }}>Add these 3 CNAME records at your DNS provider:</p>
+                    <p style={{ color: T.soft, marginTop: 8 }}>Add these records at your DNS provider:</p>
                     <ul style={{ marginTop: 6, paddingLeft: 20, color: T.soft }}>
-                      {sesIdentity.dkimTokens.map((token) => (
-                        <li key={token} style={{ fontFamily: 'monospace', fontSize: 12 }}>{token}._domainkey.{sesIdentity.domain} → {token}.dkim.amazonses.com</li>
+                      {domainIdentity.records.map((r, i) => (
+                        <li key={i} style={{ fontFamily: 'monospace', fontSize: 12, marginBottom: 4 }}>
+                          {r.type} {r.name} → {r.value} {r.status && `(${r.status})`}
+                        </li>
                       ))}
                     </ul>
                   </>
                 )}
-                <button type="button" onClick={loadSesIdentity} disabled={sesIdentityLoading} style={{ ...S.btnOutline, marginTop: 12 }}>
-                  {sesIdentityLoading ? 'Checking…' : 'Check status'}
+                <button type="button" onClick={loadDomainIdentity} disabled={domainIdentityLoading} style={{ ...S.btnOutline, marginTop: 12 }}>
+                  {domainIdentityLoading ? 'Checking…' : 'Check status'}
                 </button>
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 8 }}>
                 <input placeholder="mail.yourdomain.com" value={domainInput} onChange={(e) => setDomainInput(e.target.value)} style={{ ...formInput, width: 240 }} />
-                <button type="button" onClick={handleVerifyDomain} disabled={sesIdentityLoading} style={S.btnFill}>
-                  {sesIdentityLoading ? 'Starting…' : 'Start verification'}
+                <button type="button" onClick={handleVerifyDomain} disabled={domainIdentityLoading} style={S.btnFill}>
+                  {domainIdentityLoading ? 'Starting…' : 'Start verification'}
                 </button>
               </div>
             )}

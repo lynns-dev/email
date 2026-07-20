@@ -1,5 +1,5 @@
 import { startSubscription } from '../../../lib/subscribersStore';
-import { sendEmail } from '../../../lib/sesEmail';
+import { sendEmail } from '../../../lib/resendEmail';
 import { applyCors } from '../../../lib/cors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,7 +29,6 @@ export default async function handler(req, res) {
       to: subscriber.email,
       subject: 'Confirm your email',
       html: `<p>One click to get 15% off and first access to restocks.</p><p><a href="${confirmUrl}">Confirm your email</a></p>`,
-      fromName: process.env.SES_FROM_NAME || 'Smells Iconic',
       unsubToken: subscriber.unsubToken,
     });
 
