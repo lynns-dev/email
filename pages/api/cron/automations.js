@@ -42,8 +42,8 @@ async function runWelcomeSeries(flow, subscribers, settings) {
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.confirmedAt) continue;
-    const state = sub.automationState?.welcome_series;
-    if (!state || state.step >= flow.steps.length) continue;
+    const state = sub.automationState?.welcome_series || { step: 0 };
+    if (state.step >= flow.steps.length) continue;
 
     const step = flow.steps[state.step];
     const dueAt = sub.confirmedAt + step.delayDays * DAY_MS;
