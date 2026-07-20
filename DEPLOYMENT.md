@@ -163,8 +163,8 @@ this pass.
    reached checkout) and **Abandoned checkout** (checkout started, no
    order since). Both, plus **Order received** (fires on every completed
    order via the existing `orders/create` webhook, no extra setup), are
-   editable from `/admin` → Automations — subject, content blocks, and
-   delay per step, using the same block editor as campaigns.
+   editable from `/admin` → Automations — subject, pasted-in HTML, and
+   delay per step, same HTML textarea + live preview as campaigns.
 
 ## Troubleshooting
 

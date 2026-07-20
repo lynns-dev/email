@@ -2,11 +2,11 @@
 
 A standalone email marketing platform — Shopify customer sync, double
 opt-in subscriber capture, one-click unsubscribe, bounce/complaint
-auto-suppression, list grading, a visual campaign builder with reusable
-templates, scheduling, and welcome/sunset/abandoned-checkout/add-to-cart/
-order-received automations — sending through Resend. Built to be called
-cross-origin from one or more storefronts rather than embedded in any
-single one of them.
+auto-suppression, list grading, a paste-in-your-own-HTML campaign
+composer with reusable templates, scheduling, and welcome/sunset/
+abandoned-checkout/add-to-cart/order-received automations — sending
+through Resend. Built to be called cross-origin from one or more
+storefronts rather than embedded in any single one of them.
 
 Originally extracted from the `smells-iconic` storefront repo, where this
 logic first shipped bolted directly onto the storefront's own Next.js app.
@@ -48,9 +48,9 @@ logic first shipped bolted directly onto the storefront's own Next.js app.
   built in)
 - `lib/resendIdentity.js` — Resend domain verification (DKIM/SPF) for the
   Settings UI
-- `lib/emailBlocks.js` — the visual campaign/automation builder's block
-  model + email-safe HTML renderer (logo/footer/font applied from
-  Settings automatically)
+- `lib/emailBlocks.js` — wraps a campaign/automation step's pasted-in
+  HTML with the account's logo/footer/font from Settings, applied
+  automatically at render time
 - `lib/emailEngagement.js` + `lib/listGrading.js` — click-based
   engagement tiering and A–F list grading (not open-based — see the file
   headers for why open tracking isn't trustworthy)

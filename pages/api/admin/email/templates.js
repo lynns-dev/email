@@ -11,11 +11,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { name, blocks } = req.body || {};
+    const { name, contentHtml } = req.body || {};
     if (!name || !name.trim()) return res.status(400).json({ error: 'Template name is required.' });
-    if (!Array.isArray(blocks) || blocks.length === 0) return res.status(400).json({ error: 'Add at least one block before saving.' });
+    if (!contentHtml || !contentHtml.trim()) return res.status(400).json({ error: 'Paste in some HTML before saving.' });
     try {
-      const template = await createTemplate({ name: name.trim(), blocks });
+      const template = await createTemplate({ name: name.trim(), contentHtml });
       return res.status(200).json({ template });
     } catch (err) {
       return res.status(500).json({ error: err.message });

@@ -15,20 +15,20 @@ import { getAutomations } from '../../../lib/automationsStore';
 import { getSubscribers, updateAutomationState, suppressByEmail } from '../../../lib/subscribersStore';
 import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
-import { renderBlocksToHtml } from '../../../lib/emailBlocks';
+import { renderEmailHtml } from '../../../lib/emailBlocks';
 import { sendEmail } from '../../../lib/resendEmail';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-// Automation steps store `blocks` (lib/emailBlocks.js), same as
-// campaigns, so they get the account's logo/footer/font automatically —
-// but unlike campaigns, automation sends don't go through
-// lib/emailSend.js's wrapLinksForSend/personalizeSendHtml pipeline (no
-// per-campaign click tracking here), so the {{UNSUB_URL}} placeholder
-// the footer leaves behind has to be filled in directly.
+// Automation steps store `html` (lib/emailBlocks.js), same as campaigns,
+// so they get the account's logo/footer/font automatically — but unlike
+// campaigns, automation sends don't go through lib/emailSend.js's
+// wrapLinksForSend/personalizeSendHtml pipeline (no per-campaign click
+// tracking here), so the {{UNSUB_URL}} placeholder the footer leaves
+// behind has to be filled in directly.
 function renderStepHtml(step, settings, unsubUrl) {
-  return renderBlocksToHtml(step.blocks, settings).replace(/{{UNSUB_URL}}/g, unsubUrl);
+  return renderEmailHtml(step.html, settings).replace(/{{UNSUB_URL}}/g, unsubUrl);
 }
 
 function unsubUrlFor(sub) {

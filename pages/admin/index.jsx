@@ -2,9 +2,8 @@ import React from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { T, S } from '../../lib/theme';
-import { createBlock, renderBlocksToHtml, EMAIL_FONTS } from '../../lib/emailBlocks';
+import { renderEmailHtml, EMAIL_FONTS } from '../../lib/emailBlocks';
 
-const BLOCK_LABELS = { text: 'Text', image: 'Image', button: 'Button' };
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'settings', label: 'Settings' },
@@ -27,7 +26,7 @@ export default function AdminDashboard() {
   const [gradeSummary, setGradeSummary] = React.useState(null);
   const [campaigns, setCampaigns] = React.useState([]);
   const [automations, setAutomations] = React.useState([]);
-  const [campaignForm, setCampaignForm] = React.useState({ subject: '', fromName: '', segment: 'all', blocks: [] });
+  const [campaignForm, setCampaignForm] = React.useState({ subject: '', fromName: '', segment: 'all', contentHtml: '' });
   const [campaignFormMessage, setCampaignFormMessage] = React.useState('');
   const [sendingCampaignId, setSendingCampaignId] = React.useState(null);
   const [templates, setTemplates] = React.useState([]);
@@ -143,34 +142,8 @@ export default function AdminDashboard() {
       return;
     }
     setCampaigns((prev) => [...prev, data.campaign]);
-    setCampaignForm({ subject: '', fromName: '', segment: 'all', blocks: [] });
+    setCampaignForm({ subject: '', fromName: '', segment: 'all', contentHtml: '' });
     setCampaignFormMessage('Draft saved.');
-  };
-
-  const handleAddBlock = (type) => {
-    setCampaignForm((prev) => ({ ...prev, blocks: [...prev.blocks, createBlock(type)] }));
-  };
-
-  const handleUpdateBlock = (id, patch) => {
-    setCampaignForm((prev) => ({
-      ...prev,
-      blocks: prev.blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)),
-    }));
-  };
-
-  const handleRemoveBlock = (id) => {
-    setCampaignForm((prev) => ({ ...prev, blocks: prev.blocks.filter((b) => b.id !== id) }));
-  };
-
-  const handleMoveBlock = (id, direction) => {
-    setCampaignForm((prev) => {
-      const blocks = [...prev.blocks];
-      const idx = blocks.findIndex((b) => b.id === id);
-      const swapWith = idx + direction;
-      if (swapWith < 0 || swapWith >= blocks.length) return prev;
-      [blocks[idx], blocks[swapWith]] = [blocks[swapWith], blocks[idx]];
-      return { ...prev, blocks };
-    });
   };
 
   const handleSaveTemplate = async () => {
@@ -178,7 +151,7 @@ export default function AdminDashboard() {
     const res = await fetch('/api/admin/email/templates', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: templateName, blocks: campaignForm.blocks }),
+      body: JSON.stringify({ name: templateName, contentHtml: campaignForm.contentHtml }),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -193,13 +166,10 @@ export default function AdminDashboard() {
   const handleUseTemplate = (templateId) => {
     const template = templates.find((t) => t.id === templateId);
     if (!template) return;
-    // Fresh block ids so editing this campaign never mutates the saved
-    // template — it's a copy, same as starting a campaign from any ESP's
-    // template library.
-    setCampaignForm((prev) => ({
-      ...prev,
-      blocks: template.blocks.map((b) => ({ ...b, id: createBlock(b.type).id })),
-    }));
+    // A copy, not a live link back to the template — editing this
+    // campaign never mutates the saved template, same as starting a
+    // campaign from any ESP's template library.
+    setCampaignForm((prev) => ({ ...prev, contentHtml: template.contentHtml }));
   };
 
   const handleDeleteTemplate = async (id) => {
@@ -254,65 +224,15 @@ export default function AdminDashboard() {
     if (res.ok) setAutomations((prev) => prev.map((a) => (a.id === automation.id ? data.automation : a)));
   };
 
-  // Edits are applied to local state immediately (so the block editor
-  // and preview feel live) and only PUT to the server when "Save
-  // changes" is clicked — same pattern as the campaign composer, just
-  // addressed by automationId + stepIndex instead of a single draft.
+  // Edits are applied to local state immediately (so the textarea and
+  // preview feel live) and only PUT to the server when "Save changes" is
+  // clicked — same pattern as the campaign composer, just addressed by
+  // automationId + stepIndex instead of a single draft.
   const updateAutomationStep = (automationId, stepIndex, patch) => {
     setAutomations((prev) =>
       prev.map((a) => {
         if (a.id !== automationId) return a;
         const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, ...patch } : s));
-        return { ...a, steps };
-      })
-    );
-  };
-
-  const updateStepBlock = (automationId, stepIndex, blockId, patch) => {
-    setAutomations((prev) =>
-      prev.map((a) => {
-        if (a.id !== automationId) return a;
-        const steps = a.steps.map((s, i) =>
-          i === stepIndex ? { ...s, blocks: s.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) } : s
-        );
-        return { ...a, steps };
-      })
-    );
-  };
-
-  const addStepBlock = (automationId, stepIndex, type) => {
-    setAutomations((prev) =>
-      prev.map((a) => {
-        if (a.id !== automationId) return a;
-        const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, blocks: [...(s.blocks || []), createBlock(type)] } : s));
-        return { ...a, steps };
-      })
-    );
-  };
-
-  const removeStepBlock = (automationId, stepIndex, blockId) => {
-    setAutomations((prev) =>
-      prev.map((a) => {
-        if (a.id !== automationId) return a;
-        const steps = a.steps.map((s, i) => (i === stepIndex ? { ...s, blocks: s.blocks.filter((b) => b.id !== blockId) } : s));
-        return { ...a, steps };
-      })
-    );
-  };
-
-  const moveStepBlock = (automationId, stepIndex, blockId, direction) => {
-    setAutomations((prev) =>
-      prev.map((a) => {
-        if (a.id !== automationId) return a;
-        const steps = a.steps.map((s, i) => {
-          if (i !== stepIndex) return s;
-          const blocks = [...s.blocks];
-          const idx = blocks.findIndex((b) => b.id === blockId);
-          const swapWith = idx + direction;
-          if (swapWith < 0 || swapWith >= blocks.length) return s;
-          [blocks[idx], blocks[swapWith]] = [blocks[swapWith], blocks[idx]];
-          return { ...s, blocks };
-        });
         return { ...a, steps };
       })
     );
@@ -629,7 +549,7 @@ export default function AdminDashboard() {
           ) : (
             templates.map((t) => (
               <div key={t.id} style={listRow}>
-                <div style={{ flex: 1, fontSize: 14 }}>{t.name} <span style={{ color: T.soft, fontSize: 12 }}>({t.blocks.length} block{t.blocks.length === 1 ? '' : 's'})</span></div>
+                <div style={{ flex: 1, fontSize: 14 }}>{t.name}</div>
                 <button onClick={() => handleDeleteTemplate(t.id)} style={deleteBtn}>Delete</button>
               </div>
             ))
@@ -723,28 +643,13 @@ export default function AdminDashboard() {
 
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 320 }}>
-                <label style={formLabel}>Content</label>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                  <button type="button" onClick={() => handleAddBlock('text')} style={S.btnOutline}>+ Text</button>
-                  <button type="button" onClick={() => handleAddBlock('image')} style={S.btnOutline}>+ Image</button>
-                  <button type="button" onClick={() => handleAddBlock('button')} style={S.btnOutline}>+ Button</button>
-                </div>
-
-                {campaignForm.blocks.length === 0 ? (
-                  <p style={{ color: T.soft, fontSize: 13 }}>No blocks yet — add text, an image, or a button above.</p>
-                ) : (
-                  campaignForm.blocks.map((block, i) => (
-                    <BlockCard
-                      key={block.id}
-                      block={block}
-                      isFirst={i === 0}
-                      isLast={i === campaignForm.blocks.length - 1}
-                      onChange={(patch) => handleUpdateBlock(block.id, patch)}
-                      onRemove={() => handleRemoveBlock(block.id)}
-                      onMove={(dir) => handleMoveBlock(block.id, dir)}
-                    />
-                  ))
-                )}
+                <label style={formLabel}>HTML content</label>
+                <textarea
+                  placeholder="Paste your email HTML here…"
+                  value={campaignForm.contentHtml}
+                  onChange={(e) => setCampaignForm({ ...campaignForm, contentHtml: e.target.value })}
+                  style={{ ...formInput, height: 360, padding: 12, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}
+                />
 
                 <div style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
@@ -753,7 +658,7 @@ export default function AdminDashboard() {
                     onChange={(e) => setTemplateName(e.target.value)}
                     style={{ ...formInput, width: 180 }}
                   />
-                  <button type="button" onClick={handleSaveTemplate} disabled={!templateName.trim() || campaignForm.blocks.length === 0} style={S.btnOutline}>
+                  <button type="button" onClick={handleSaveTemplate} disabled={!templateName.trim() || !campaignForm.contentHtml.trim()} style={S.btnOutline}>
                     Save as template
                   </button>
                   {templateMessage && <span style={{ fontSize: 12, color: T.ink }}>{templateMessage}</span>}
@@ -764,7 +669,7 @@ export default function AdminDashboard() {
                 <label style={formLabel}>Preview</label>
                 <iframe
                   title="Campaign preview"
-                  srcDoc={renderBlocksToHtml(campaignForm.blocks, settings || {}, { preview: true })}
+                  srcDoc={renderEmailHtml(campaignForm.contentHtml, settings || {}, { preview: true })}
                   style={{ width: '100%', height: 420, border: `1px solid ${T.line}`, background: T.paper }}
                 />
               </div>
@@ -809,7 +714,7 @@ export default function AdminDashboard() {
                 const isSuppress = !step.subject;
                 const previewKey = `${a.id}-${i}`;
                 return (
-                  <div key={i} style={blockCard}>
+                  <div key={i} style={stepCard}>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: isSuppress ? 0 : 12 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, flexShrink: 0 }}>
                         {step.delayHours != null ? `Hour ${step.delayHours}` : `Day ${step.delayDays}`}
@@ -828,31 +733,23 @@ export default function AdminDashboard() {
 
                     {!isSuppress && (
                       <>
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                          <button type="button" onClick={() => addStepBlock(a.id, i, 'text')} style={S.btnOutline}>+ Text</button>
-                          <button type="button" onClick={() => addStepBlock(a.id, i, 'image')} style={S.btnOutline}>+ Image</button>
-                          <button type="button" onClick={() => addStepBlock(a.id, i, 'button')} style={S.btnOutline}>+ Button</button>
+                        <textarea
+                          placeholder="Paste this step's HTML here…"
+                          value={step.html || ''}
+                          onChange={(e) => updateAutomationStep(a.id, i, { html: e.target.value })}
+                          style={{ ...formInput, height: 200, padding: 12, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}
+                        />
+
+                        <div style={{ marginTop: 12 }}>
                           <button type="button" onClick={() => togglePreview(previewKey)} style={S.btnOutline}>
                             {previewOpen[previewKey] ? 'Hide preview' : 'Preview'}
                           </button>
                         </div>
 
-                        {(step.blocks || []).map((block, bi) => (
-                          <BlockCard
-                            key={block.id}
-                            block={block}
-                            isFirst={bi === 0}
-                            isLast={bi === step.blocks.length - 1}
-                            onChange={(patch) => updateStepBlock(a.id, i, block.id, patch)}
-                            onRemove={() => removeStepBlock(a.id, i, block.id)}
-                            onMove={(dir) => moveStepBlock(a.id, i, block.id, dir)}
-                          />
-                        ))}
-
                         {previewOpen[previewKey] && (
                           <iframe
                             title={`${a.id} step ${i} preview`}
-                            srcDoc={renderBlocksToHtml(step.blocks, settings || {}, { preview: true })}
+                            srcDoc={renderEmailHtml(step.html, settings || {}, { preview: true })}
                             style={{ width: '100%', height: 320, border: `1px solid ${T.line}`, marginTop: 10, background: T.paper }}
                           />
                         )}
@@ -875,53 +772,6 @@ export default function AdminDashboard() {
         )}
         </main>
       </div>
-    </div>
-  );
-}
-
-function BlockCard({ block, isFirst, isLast, onChange, onRemove, onMove }) {
-  return (
-    <div style={blockCard}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft }}>{BLOCK_LABELS[block.type]}</span>
-        <div style={{ display: 'flex', gap: 4 }}>
-          <button type="button" onClick={() => onMove(-1)} disabled={isFirst} style={iconBtn}>↑</button>
-          <button type="button" onClick={() => onMove(1)} disabled={isLast} style={iconBtn}>↓</button>
-          <button type="button" onClick={onRemove} style={{ ...iconBtn, color: '#b3261e' }}>✕</button>
-        </div>
-      </div>
-
-      {block.type === 'text' && (
-        <>
-          <textarea
-            placeholder="Paragraph text…"
-            value={block.content}
-            onChange={(e) => onChange({ content: e.target.value })}
-            style={{ ...formInput, height: 80, padding: 10 }}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <input placeholder="Link text (optional)" value={block.linkText} onChange={(e) => onChange({ linkText: e.target.value })} style={{ ...formInput, flex: 1 }} />
-            <input placeholder="Link URL" value={block.linkUrl} onChange={(e) => onChange({ linkUrl: e.target.value })} style={{ ...formInput, flex: 1 }} />
-          </div>
-        </>
-      )}
-
-      {block.type === 'image' && (
-        <>
-          <input placeholder="Image URL" value={block.src} onChange={(e) => onChange({ src: e.target.value })} style={formInput} />
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <input placeholder="Alt text" value={block.alt} onChange={(e) => onChange({ alt: e.target.value })} style={{ ...formInput, flex: 1 }} />
-            <input placeholder="Link URL (optional)" value={block.linkUrl} onChange={(e) => onChange({ linkUrl: e.target.value })} style={{ ...formInput, flex: 1 }} />
-          </div>
-        </>
-      )}
-
-      {block.type === 'button' && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input placeholder="Button label" value={block.label} onChange={(e) => onChange({ label: e.target.value })} style={{ ...formInput, flex: 1 }} />
-          <input placeholder="Button URL" value={block.url} onChange={(e) => onChange({ url: e.target.value })} style={{ ...formInput, flex: 1 }} />
-        </div>
-      )}
     </div>
   );
 }
@@ -965,11 +815,7 @@ const formInput = {
 };
 const formLabel = { display: 'block', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, marginBottom: 6 };
 const gradeTile = { background: T.paper, border: `1px solid ${T.line}`, padding: '14px 18px', minWidth: 90, textAlign: 'center' };
-const blockCard = { background: T.paper, border: `1px solid ${T.line}`, padding: 14, marginBottom: 10 };
-const iconBtn = {
-  width: 26, height: 26, border: `1px solid ${T.line}`, background: T.white, cursor: 'pointer',
-  fontSize: 12, color: T.ink, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
-};
+const stepCard = { background: T.paper, border: `1px solid ${T.line}`, padding: 14, marginBottom: 10 };
 const sidebar = {
   width: 200, flexShrink: 0, padding: '32px 16px', borderRight: `1px solid ${T.line}`,
   position: 'sticky', top: 0, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
