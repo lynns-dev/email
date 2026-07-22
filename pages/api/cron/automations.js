@@ -15,30 +15,31 @@ import { getAutomations } from '../../../lib/automationsStore';
 import { getSubscribers, updateAutomationState, suppressByEmail } from '../../../lib/subscribersStore';
 import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
-import { renderEmailHtml } from '../../../lib/emailBlocks';
-import { sendEmail } from '../../../lib/resendEmail';
+import { prepareStepTemplate, sendStepToSubscriber } from '../../../lib/automationSend';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-// Automation steps store `html` (lib/emailBlocks.js), same as campaigns,
-// so they get the account's logo/footer/font automatically — but unlike
-// campaigns, automation sends don't go through lib/emailSend.js's
-// wrapLinksForSend/personalizeSendHtml pipeline (no per-campaign click
-// tracking here), so the {{UNSUB_URL}} placeholder the footer leaves
-// behind has to be filled in directly.
-function renderStepHtml(step, settings, unsubUrl) {
-  return renderEmailHtml(step.html, settings).replace(/{{UNSUB_URL}}/g, unsubUrl);
-}
-
-function unsubUrlFor(sub) {
-  return `${process.env.NEXT_PUBLIC_BASE_URL || ''}/api/email/unsubscribe?token=${sub.unsubToken}`;
+// A single cron run processes many subscribers who can be at different
+// steps of the same flow, but a step's content (and therefore its
+// click-tracking link targets) doesn't vary per recipient — so each
+// step's template is only wrapped/persisted once per run, the first time
+// it's actually needed, not once per subscriber.
+function makeStepTemplateCache(flow, settings) {
+  const cache = new Map();
+  return async function getTemplate(stepIndex) {
+    if (cache.has(stepIndex)) return cache.get(stepIndex);
+    const template = await prepareStepTemplate(flow.id, flow.steps[stepIndex], stepIndex, settings);
+    cache.set(stepIndex, template);
+    return template;
+  };
 }
 
 async function runWelcomeSeries(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
+  const getTemplate = makeStepTemplateCache(flow, settings);
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.confirmedAt) continue;
@@ -49,7 +50,8 @@ async function runWelcomeSeries(flow, subscribers, settings) {
     const dueAt = sub.confirmedAt + step.delayDays * DAY_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    const template = await getTemplate(state.step);
+    await sendStepToSubscriber(flow.id, state.step, template, step.subject, sub);
     await updateAutomationState(sub.email, 'welcome_series', { step: state.step + 1 });
     sent += 1;
   }
@@ -60,6 +62,7 @@ async function runSunsetWinback(flow, subscribers, settings) {
   if (!flow.enabled) return { sent: 0, suppressed: 0 };
   let sent = 0;
   let suppressed = 0;
+  const getTemplate = makeStepTemplateCache(flow, settings);
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed') continue;
@@ -79,7 +82,8 @@ async function runSunsetWinback(flow, subscribers, settings) {
     if (idleDays < step.delayDays) continue;
 
     if (step.subject) {
-      await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+      const template = await getTemplate(state.step);
+      await sendStepToSubscriber(flow.id, state.step, template, step.subject, sub);
       sent += 1;
     } else {
       await suppressByEmail(sub.email, 'sunset');
@@ -99,6 +103,7 @@ async function runAbandonedCheckout(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
+  const getTemplate = makeStepTemplateCache(flow, settings);
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.checkoutStartedAt) continue;
@@ -109,7 +114,8 @@ async function runAbandonedCheckout(flow, subscribers, settings) {
     const dueAt = sub.checkoutStartedAt + step.delayHours * HOUR_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    const template = await getTemplate(state.step);
+    await sendStepToSubscriber(flow.id, state.step, template, step.subject, sub);
     await updateAutomationState(sub.email, 'abandoned_checkout', { step: state.step + 1 });
     sent += 1;
   }
@@ -123,6 +129,7 @@ async function runAddToCart(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
+  const getTemplate = makeStepTemplateCache(flow, settings);
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.cartUpdatedAt) continue;
@@ -133,7 +140,8 @@ async function runAddToCart(flow, subscribers, settings) {
     const dueAt = sub.cartUpdatedAt + step.delayHours * HOUR_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    const template = await getTemplate(state.step);
+    await sendStepToSubscriber(flow.id, state.step, template, step.subject, sub);
     await updateAutomationState(sub.email, 'add_to_cart', { step: state.step + 1 });
     sent += 1;
   }
@@ -148,6 +156,7 @@ async function runOrderReceived(flow, subscribers, settings) {
   if (!flow.enabled) return 0;
   let sent = 0;
   const now = Date.now();
+  const getTemplate = makeStepTemplateCache(flow, settings);
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.lastOrderAt) continue;
@@ -158,7 +167,8 @@ async function runOrderReceived(flow, subscribers, settings) {
     const dueAt = sub.lastOrderAt + step.delayHours * HOUR_MS;
     if (now < dueAt) continue;
 
-    await sendEmail({ to: sub.email, subject: step.subject, html: renderStepHtml(step, settings, unsubUrlFor(sub)), unsubToken: sub.unsubToken });
+    const template = await getTemplate(state.step);
+    await sendStepToSubscriber(flow.id, state.step, template, step.subject, sub);
     await updateAutomationState(sub.email, 'order_received', { step: state.step + 1 });
     sent += 1;
   }

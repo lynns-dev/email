@@ -52,7 +52,7 @@ export default function AdminDashboard() {
   const [newSubscriberEmail, setNewSubscriberEmail] = React.useState('');
   const [addingSubscriber, setAddingSubscriber] = React.useState(false);
   const [addSubscriberMessage, setAddSubscriberMessage] = React.useState('');
-  const [campaignAnalytics, setCampaignAnalytics] = React.useState({ campaigns: {}, aggregate: null });
+  const [emailAnalytics, setEmailAnalytics] = React.useState({ campaigns: {}, automations: {}, aggregate: null });
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -97,10 +97,10 @@ export default function AdminDashboard() {
     fetch('/api/admin/email/campaigns').then((r) => r.json()).then((data) => setCampaigns(data.campaigns || [])).catch(() => {});
   }, []);
 
-  const loadCampaignAnalytics = React.useCallback(() => {
-    fetch('/api/admin/email/campaign-analytics')
+  const loadEmailAnalytics = React.useCallback(() => {
+    fetch('/api/admin/email/analytics')
       .then((r) => r.json())
-      .then((data) => setCampaignAnalytics({ campaigns: data.campaigns || {}, aggregate: data.aggregate || null }))
+      .then((data) => setEmailAnalytics({ campaigns: data.campaigns || {}, automations: data.automations || {}, aggregate: data.aggregate || null }))
       .catch(() => {});
   }, []);
 
@@ -134,12 +134,12 @@ export default function AdminDashboard() {
   React.useEffect(() => {
     loadSubscribers();
     loadCampaigns();
-    loadCampaignAnalytics();
+    loadEmailAnalytics();
     loadAutomations();
     loadTemplates();
     loadSettings();
     loadDomainIdentity();
-  }, [loadSubscribers, loadCampaigns, loadCampaignAnalytics, loadAutomations, loadTemplates, loadSettings, loadDomainIdentity]);
+  }, [loadSubscribers, loadCampaigns, loadEmailAnalytics, loadAutomations, loadTemplates, loadSettings, loadDomainIdentity]);
 
   const handleSuppressSubscriber = async (email) => {
     if (!confirm(`Suppress ${email}? They will never receive an email again.`)) return;
@@ -433,15 +433,15 @@ export default function AdminDashboard() {
               <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Subscribers</div>
             </div>
             <div style={gradeTile}>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.totalSent}</div>
-              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Emails sent (all-time)</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{emailAnalytics.aggregate?.sent ?? analytics.totalSent}</div>
+              <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Emails sent (all-time, campaigns + automations)</div>
             </div>
             <div style={gradeTile}>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{analytics.clickRate}%</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{emailAnalytics.aggregate?.clickRate ?? analytics.clickRate}%</div>
               <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Click rate</div>
             </div>
             <div style={gradeTile}>
-              <div style={{ fontSize: 22, fontWeight: 700 }}>{campaignAnalytics.aggregate?.conversionRate ?? '—'}{campaignAnalytics.aggregate ? '%' : ''}</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{emailAnalytics.aggregate?.conversionRate ?? '—'}{emailAnalytics.aggregate ? '%' : ''}</div>
               <div style={{ fontSize: 11, color: T.soft, marginTop: 2 }}>Conversion rate (clicked → ordered within 7d)</div>
             </div>
             <div style={gradeTile}>
@@ -676,7 +676,7 @@ export default function AdminDashboard() {
               {[...campaigns].sort((a, b) => (b.sentAt || b.scheduledAt || b.createdAt || 0) - (a.sentAt || a.scheduledAt || a.createdAt || 0)).map((c) => {
                 const clickRate = c.stats.sent ? Math.round((c.stats.clicked / c.stats.sent) * 1000) / 10 : 0;
                 const bounceRate = c.stats.sent ? Math.round((c.stats.bounced / c.stats.sent) * 1000) / 10 : 0;
-                const conversion = campaignAnalytics.campaigns[c.id];
+                const conversion = emailAnalytics.campaigns[c.id];
                 return (
                   <div key={c.id} style={listRow}>
                     <div style={{ flex: 1, fontSize: 14 }}>
@@ -846,6 +846,15 @@ export default function AdminDashboard() {
                         />
                       )}
                     </div>
+
+                    {!isSuppress && step.stats?.sent > 0 && (
+                      <div style={{ fontSize: 12, color: T.soft, marginBottom: 12 }}>
+                        Sent {step.stats.sent} · Click rate {Math.round((step.stats.clicked / step.stats.sent) * 1000) / 10}%
+                        {emailAnalytics.automations?.[a.id]?.[i] && (
+                          <span> · Conversion rate {emailAnalytics.automations[a.id][i].conversionRate}% ({emailAnalytics.automations[a.id][i].converted}/{emailAnalytics.automations[a.id][i].uniqueClickers} clickers ordered within 7d)</span>
+                        )}
+                      </div>
+                    )}
 
                     {!isSuppress && (
                       <>
