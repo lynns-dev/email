@@ -49,6 +49,9 @@ export default function AdminDashboard() {
   const [welcomeMessage, setWelcomeMessage] = React.useState({});
   const [subscriberSearch, setSubscriberSearch] = React.useState('');
   const [subscriberSort, setSubscriberSort] = React.useState('date-desc');
+  const [newSubscriberEmail, setNewSubscriberEmail] = React.useState('');
+  const [addingSubscriber, setAddingSubscriber] = React.useState(false);
+  const [addSubscriberMessage, setAddSubscriberMessage] = React.useState('');
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -137,6 +140,29 @@ export default function AdminDashboard() {
       body: JSON.stringify({ email, action: 'suppress' }),
     });
     if (res.ok) loadSubscribers();
+  };
+
+  const handleAddSubscriber = async (e) => {
+    e.preventDefault();
+    setAddSubscriberMessage('');
+    setAddingSubscriber(true);
+    try {
+      const res = await fetch('/api/admin/email/subscribers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newSubscriberEmail.trim(), action: 'add' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAddSubscriberMessage(data.error || 'Failed to add subscriber.');
+        return;
+      }
+      setNewSubscriberEmail('');
+      setAddSubscriberMessage(`Added ${data.subscriber.email}.`);
+      loadSubscribers();
+    } finally {
+      setAddingSubscriber(false);
+    }
   };
 
   const handleSendWelcome = async (email) => {
@@ -536,6 +562,24 @@ export default function AdminDashboard() {
           title={`Subscribers (${visibleSubscribers.length}${visibleSubscribers.length !== subscribers.length ? ` of ${subscribers.length}` : ''})`}
           action={<a href="/api/admin/email/subscribers?format=csv" style={S.btnOutline}>Export CSV</a>}
         >
+          <form onSubmit={handleAddSubscriber} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <input
+              type="email"
+              placeholder="Add subscriber by email…"
+              value={newSubscriberEmail}
+              onChange={(e) => setNewSubscriberEmail(e.target.value)}
+              style={{ ...formInput, width: 260 }}
+              required
+            />
+            <button type="submit" disabled={addingSubscriber} style={S.btnFill}>
+              {addingSubscriber ? 'Adding…' : 'Add subscriber'}
+            </button>
+            {addSubscriberMessage && <span style={{ fontSize: 12, color: T.ink }}>{addSubscriberMessage}</span>}
+          </form>
+          <p style={{ fontSize: 12, color: T.soft, marginTop: 0, marginBottom: 20 }}>
+            Skips double opt-in and marks them subscribed immediately — only add someone here if you already have a lawful basis to email them.
+          </p>
+
           {subscribers.length === 0 ? (
             <p style={{ color: T.soft, fontSize: 14 }}>No subscribers yet.</p>
           ) : (

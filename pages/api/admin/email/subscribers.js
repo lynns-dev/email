@@ -1,6 +1,8 @@
-import { getSubscribers, suppressByEmail } from '../../../../lib/subscribersStore';
+import { getSubscribers, suppressByEmail, addSubscriberManually } from '../../../../lib/subscribersStore';
 import { engagementTier } from '../../../../lib/emailEngagement';
 import { computeGrade, gradeSummary } from '../../../../lib/listGrading';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function toCsv(subscribers) {
   const header = ['email', 'status', 'tier', 'grade', 'source', 'createdAt', 'confirmedAt', 'lastClickAt', 'ordersCount', 'totalSpent'];
@@ -33,14 +35,31 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const { email, action } = req.body || {};
-    if (!email || action !== 'suppress') return res.status(400).json({ error: 'Invalid request.' });
-    try {
-      const subscriber = await suppressByEmail(email, 'manual');
-      if (!subscriber) return res.status(404).json({ error: 'Subscriber not found.' });
-      return res.status(200).json({ subscriber });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
+
+    if (action === 'add') {
+      if (!email || !EMAIL_RE.test(String(email).trim())) {
+        return res.status(400).json({ error: 'Enter a valid email address.' });
+      }
+      try {
+        const subscriber = await addSubscriberManually(email);
+        return res.status(200).json({ subscriber });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
     }
+
+    if (action === 'suppress') {
+      if (!email) return res.status(400).json({ error: 'Invalid request.' });
+      try {
+        const subscriber = await suppressByEmail(email, 'manual');
+        if (!subscriber) return res.status(404).json({ error: 'Subscriber not found.' });
+        return res.status(200).json({ subscriber });
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
+    }
+
+    return res.status(400).json({ error: 'Invalid request.' });
   }
 
   res.setHeader('Allow', 'GET, POST');
