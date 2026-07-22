@@ -45,6 +45,8 @@ export default function AdminDashboard() {
   const [automationMessage, setAutomationMessage] = React.useState({});
   const [previewOpen, setPreviewOpen] = React.useState({});
   const [activeAutomationId, setActiveAutomationId] = React.useState(null);
+  const [welcomeSending, setWelcomeSending] = React.useState(null);
+  const [welcomeMessage, setWelcomeMessage] = React.useState({});
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -126,6 +128,22 @@ export default function AdminDashboard() {
       body: JSON.stringify({ email, action: 'suppress' }),
     });
     if (res.ok) loadSubscribers();
+  };
+
+  const handleSendWelcome = async (email) => {
+    setWelcomeSending(email);
+    setWelcomeMessage((prev) => ({ ...prev, [email]: '' }));
+    try {
+      const res = await fetch('/api/admin/email/send-welcome', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      setWelcomeMessage((prev) => ({ ...prev, [email]: res.ok ? `Sent: "${data.subject}"` : data.error || 'Failed to send.' }));
+    } finally {
+      setWelcomeSending(null);
+    }
   };
 
   const handleCreateCampaign = async (e) => {
@@ -519,7 +537,7 @@ export default function AdminDashboard() {
                 <div style={{ flex: 1 }}>Tier</div>
                 <div style={{ width: 60 }}>Grade</div>
                 <div style={{ flex: 1 }}>Joined</div>
-                <div style={{ width: 90 }} />
+                <div style={{ width: 230 }} />
               </div>
               {subscribers.map((s) => (
                 <div key={s.email} style={row}>
@@ -528,7 +546,17 @@ export default function AdminDashboard() {
                   <div style={{ flex: 1 }}>{s.tier}</div>
                   <div style={{ width: 60 }}>{s.grade || '—'}</div>
                   <div style={{ flex: 1 }}>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</div>
-                  <div style={{ width: 90 }}>
+                  <div style={{ width: 230, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    {welcomeMessage[s.email] && <span style={{ fontSize: 11, color: T.soft }}>{welcomeMessage[s.email]}</span>}
+                    {s.status === 'subscribed' && (
+                      <button
+                        onClick={() => handleSendWelcome(s.email)}
+                        disabled={welcomeSending === s.email}
+                        style={S.btnOutline}
+                      >
+                        {welcomeSending === s.email ? 'Sending…' : 'Send welcome email'}
+                      </button>
+                    )}
                     {s.status !== 'suppressed' && (
                       <button onClick={() => handleSuppressSubscriber(s.email)} style={deleteBtn}>Suppress</button>
                     )}
