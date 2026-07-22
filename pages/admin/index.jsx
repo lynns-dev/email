@@ -47,6 +47,8 @@ export default function AdminDashboard() {
   const [activeAutomationId, setActiveAutomationId] = React.useState(null);
   const [welcomeSending, setWelcomeSending] = React.useState(null);
   const [welcomeMessage, setWelcomeMessage] = React.useState({});
+  const [subscriberSearch, setSubscriberSearch] = React.useState('');
+  const [subscriberSort, setSubscriberSort] = React.useState('date-desc');
 
   const analytics = React.useMemo(() => {
     const totals = campaigns.reduce(
@@ -69,6 +71,13 @@ export default function AdminDashboard() {
       complaintRate: rate(totals.complained, totals.sent),
     };
   }, [subscribers, campaigns]);
+
+  const visibleSubscribers = React.useMemo(() => {
+    const query = subscriberSearch.trim().toLowerCase();
+    const filtered = query ? subscribers.filter((s) => s.email.toLowerCase().includes(query)) : subscribers;
+    const direction = subscriberSort === 'date-asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => direction * ((a.createdAt || 0) - (b.createdAt || 0)));
+  }, [subscribers, subscriberSearch, subscriberSort]);
 
   const loadSubscribers = React.useCallback(() => {
     fetch('/api/admin/email/subscribers')
@@ -524,22 +533,41 @@ export default function AdminDashboard() {
         {activeTab === 'subscribers' && (
         <>
         <Section
-          title={`Subscribers (${subscribers.length})`}
+          title={`Subscribers (${visibleSubscribers.length}${visibleSubscribers.length !== subscribers.length ? ` of ${subscribers.length}` : ''})`}
           action={<a href="/api/admin/email/subscribers?format=csv" style={S.btnOutline}>Export CSV</a>}
         >
           {subscribers.length === 0 ? (
             <p style={{ color: T.soft, fontSize: 14 }}>No subscribers yet.</p>
           ) : (
             <div>
+              <div style={{ marginBottom: 16 }}>
+                <input
+                  placeholder="Search by email…"
+                  value={subscriberSearch}
+                  onChange={(e) => setSubscriberSearch(e.target.value)}
+                  style={{ ...formInput, width: 260 }}
+                />
+              </div>
               <div style={headRow}>
                 <div style={{ flex: 2 }}>Email</div>
                 <div style={{ flex: 1 }}>Status</div>
                 <div style={{ flex: 1 }}>Tier</div>
                 <div style={{ width: 60 }}>Grade</div>
-                <div style={{ flex: 1 }}>Joined</div>
+                <div style={{ flex: 1 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSubscriberSort((prev) => (prev === 'date-desc' ? 'date-asc' : 'date-desc'))}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}
+                  >
+                    Joined {subscriberSort === 'date-desc' ? '↓' : '↑'}
+                  </button>
+                </div>
                 <div style={{ width: 230 }} />
               </div>
-              {subscribers.map((s) => (
+              {visibleSubscribers.length === 0 ? (
+                <p style={{ color: T.soft, fontSize: 13, padding: '16px 0' }}>No subscribers match "{subscriberSearch}".</p>
+              ) : (
+              visibleSubscribers.map((s) => (
                 <div key={s.email} style={row}>
                   <div style={{ flex: 2 }}>{s.email}</div>
                   <div style={{ flex: 1 }}>{s.status}</div>
@@ -562,7 +590,8 @@ export default function AdminDashboard() {
                     )}
                   </div>
                 </div>
-              ))}
+              ))
+              )}
             </div>
           )}
         </Section>
