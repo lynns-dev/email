@@ -1,4 +1,4 @@
-import { getCampaign, findSend, incrementCampaignStat } from '../../../lib/campaignsStore';
+import { getCampaign, findSend, incrementCampaignStat, logClick } from '../../../lib/campaignsStore';
 import { recordClick } from '../../../lib/subscribersStore';
 
 const FALLBACK = '/';
@@ -15,7 +15,11 @@ export default async function handler(req, res) {
     const target = campaign?.linkTargets?.[Number(i)] || FALLBACK;
 
     if (send) {
-      await Promise.all([recordClick(send.email), incrementCampaignStat(String(campaignId), 'clicked')]);
+      await Promise.all([
+        recordClick(send.email),
+        incrementCampaignStat(String(campaignId), 'clicked'),
+        logClick(String(campaignId), { email: send.email, sendId: String(sendId), clickedAt: Date.now() }),
+      ]);
     }
 
     return res.redirect(302, target);
