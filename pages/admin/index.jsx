@@ -8,6 +8,7 @@ const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'settings', label: 'Settings' },
   { id: 'shopify', label: 'Shopify' },
+  { id: 'leads', label: 'Leads' },
   { id: 'subscribers', label: 'Subscribers' },
   { id: 'campaigns', label: 'Campaigns' },
   { id: 'automations', label: 'Automations' },
@@ -34,6 +35,9 @@ export default function AdminDashboard() {
   const [templateMessage, setTemplateMessage] = React.useState('');
   const [shopifySyncing, setShopifySyncing] = React.useState(false);
   const [shopifySyncResult, setShopifySyncResult] = React.useState('');
+  const [phoneOnlyLeads, setPhoneOnlyLeads] = React.useState([]);
+  const [leadsSyncing, setLeadsSyncing] = React.useState(false);
+  const [leadsSyncResult, setLeadsSyncResult] = React.useState('');
   const [settings, setSettings] = React.useState(null);
   const [settingsForm, setSettingsForm] = React.useState(null);
   const [settingsMessage, setSettingsMessage] = React.useState('');
@@ -93,6 +97,10 @@ export default function AdminDashboard() {
       .catch(() => {});
   }, []);
 
+  const loadPhoneOnlyLeads = React.useCallback(() => {
+    fetch('/api/admin/leads').then((r) => r.json()).then((data) => setPhoneOnlyLeads(data.leads || [])).catch(() => {});
+  }, []);
+
   const loadCampaigns = React.useCallback(() => {
     fetch('/api/admin/email/campaigns').then((r) => r.json()).then((data) => setCampaigns(data.campaigns || [])).catch(() => {});
   }, []);
@@ -133,13 +141,14 @@ export default function AdminDashboard() {
 
   React.useEffect(() => {
     loadSubscribers();
+    loadPhoneOnlyLeads();
     loadCampaigns();
     loadEmailAnalytics();
     loadAutomations();
     loadTemplates();
     loadSettings();
     loadDomainIdentity();
-  }, [loadSubscribers, loadCampaigns, loadEmailAnalytics, loadAutomations, loadTemplates, loadSettings, loadDomainIdentity]);
+  }, [loadSubscribers, loadPhoneOnlyLeads, loadCampaigns, loadEmailAnalytics, loadAutomations, loadTemplates, loadSettings, loadDomainIdentity]);
 
   const handleSuppressSubscriber = async (email) => {
     if (!confirm(`Suppress ${email}? They will never receive an email again.`)) return;
@@ -400,6 +409,26 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleLeadsSync = async () => {
+    setLeadsSyncing(true);
+    setLeadsSyncResult('');
+    try {
+      const res = await fetch('/api/admin/leads-sync', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        setLeadsSyncResult(data.error || 'Sync failed.');
+        return;
+      }
+      setLeadsSyncResult(
+        `Synced ${data.total} leads — ${data.subscribersSynced} added as subscribers, ${data.phoneOnlySynced} phone-only (no email).`
+      );
+      loadSubscribers();
+      loadPhoneOnlyLeads();
+    } finally {
+      setLeadsSyncing(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: T.paper }}>
       <Head>
@@ -565,6 +594,41 @@ export default function AdminDashboard() {
             {shopifySyncing ? 'Syncing…' : 'Sync now'}
           </button>
           {shopifySyncResult && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{shopifySyncResult}</span>}
+        </Section>
+        </>
+        )}
+
+        {activeTab === 'leads' && (
+        <>
+        <Section title="Storefront leads sync">
+          <p style={{ color: T.soft, fontSize: 14, marginBottom: 16 }}>
+            Pulls in everyone who's typed an email or phone number into the storefront's checkout or a popup, whether or not they've bought — a lead with an email becomes a subscriber (full automation eligibility, same as any other subscriber); a phone-only lead has no way to become one and is listed below instead.
+          </p>
+          <button onClick={handleLeadsSync} disabled={leadsSyncing} style={S.btnFill}>
+            {leadsSyncing ? 'Syncing…' : 'Sync now'}
+          </button>
+          {leadsSyncResult && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{leadsSyncResult}</span>}
+        </Section>
+
+        <Section title={`Phone-only leads (${phoneOnlyLeads.length})`}>
+          {phoneOnlyLeads.length === 0 ? (
+            <p style={{ color: T.soft, fontSize: 14 }}>None yet — everyone synced so far had an email.</p>
+          ) : (
+            <div>
+              <div style={headRow}>
+                <div style={{ flex: 1 }}>Phone</div>
+                <div style={{ flex: 1 }}>Source</div>
+                <div style={{ flex: 1 }}>First seen</div>
+              </div>
+              {phoneOnlyLeads.map((l) => (
+                <div key={l.phone} style={row}>
+                  <div style={{ flex: 1 }}>{l.phone}</div>
+                  <div style={{ flex: 1 }}>{l.source || '—'}</div>
+                  <div style={{ flex: 1 }}>{l.firstSeenAt ? new Date(l.firstSeenAt).toLocaleDateString() : '—'}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
         </>
         )}

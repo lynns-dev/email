@@ -122,30 +122,43 @@ backfill manually:
 3. On the storefront, point its signup form at
    `<this-app-url>/api/email/subscribe`.
 
-## Step 5b: Connect a non-Shopify custom storefront (checkout capture + orders)
+## Step 5b: Connect a non-Shopify custom storefront (optional)
 
-For a storefront that isn't on Shopify (no `customers/create`/`orders/create`
-webhooks to rely on — Step 4c doesn't apply), two routes cover the same
-ground directly:
+For a storefront that isn't on Shopify (e.g. veil-ecommerce, no
+`customers/create`/`orders/create` webhooks to rely on — Step 4c doesn't
+apply) with its own checkout, orders, and lead capture — three separate
+pieces, each optional on its own:
 
-1. **Checkout-stage email capture** — `/api/email/checkout-capture`
-   (public, same CORS allowlist as Step 5's signup form — make sure
-   `ALLOWED_ORIGINS` includes this storefront's origin). Call it
-   client-side from the checkout page's email field (e.g. on blur),
-   `POST { email, consent, cartValue }` — `consent` should reflect
-   whatever marketing checkbox the checkout form shows (unchecked ⇒
-   `false` ⇒ the call no-ops, nothing is created). This both adds the
-   subscriber (pre-confirmed, `source: 'checkout'`) and starts the
-   `abandoned_checkout` automation.
-2. **Order-completed signal** — `/api/email/order-received`, bearer-token
-   protected with `STOREFRONT_WEBHOOK_SECRET` (set that env var here, and
-   give the storefront's server-side order-fulfillment code the same
-   value). Call it server-to-server right after a charge captures:
-   `POST { email }` with header `Authorization: Bearer
-   <STOREFRONT_WEBHOOK_SECRET>`. This stops `abandoned_checkout` and
-   starts `order_received` for that subscriber — without this call, a
-   customer who already paid keeps getting cart-recovery emails, since
-   nothing else tells this app the checkout converted.
+1. **Checkout email capture** — the storefront's own checkout page(s) call
+   `<this-app-url>/api/email/checkout-capture` directly from the email
+   field's blur handler (client-side, no secret needed, same trust level
+   as a public signup form). `POST { email, consent, cartValue }` —
+   `consent` should reflect whatever marketing checkbox the checkout form
+   shows (unchecked ⇒ `false` ⇒ the call no-ops, nothing is created).
+   Already covered by `ALLOWED_ORIGINS` (Step 5) — nothing extra to set
+   here.
+2. **Order-received notifications** — the storefront calls
+   `<this-app-url>/api/email/order-received` server-side right after a
+   charge captures (`POST { email }`, header `Authorization: Bearer
+   <STOREFRONT_WEBHOOK_SECRET>`). This creates the subscriber if they
+   don't already exist (an order is at least as strong a signal as a
+   manual add — this covers someone who checks out via an express payment
+   method that skips the email field's blur handler entirely) and stops
+   `abandoned_checkout`/starts `order_received`. Set
+   `STOREFRONT_WEBHOOK_SECRET` here to the same value as that storefront's
+   `EMAIL_APP_WEBHOOK_SECRET` — a mismatch fails silently (401, swallowed
+   by design on the storefront's side so a flaky notification never
+   blocks a real charge).
+3. **Leads sync** — pulls in everyone who's typed an email or phone into
+   the storefront's checkout or a popup, bought or not, from that
+   storefront's own `GET /api/leads/export`. Set `STOREFRONT_URL` to the
+   storefront's deployed URL and `STOREFRONT_LEADS_API_KEY` to the same
+   value as that storefront's `LEADS_API_KEY`. Trigger from `/admin` →
+   Leads → "Sync now" — a lead with an email becomes a full subscriber
+   (source: `lead`), eligible for every automation exactly like any other
+   subscriber; a phone-only lead has no email to key a subscriber record
+   on and lands in the "Phone-only leads" list instead (visible, not
+   automatable — this app can't send SMS).
 
 ## Step 6: Crons (automations + scheduled sends)
 
@@ -227,3 +240,7 @@ this pass.
 
 **Non-Shopify storefront: customers keep getting abandoned-checkout emails after they've already paid:**
 - The storefront's order-fulfillment code isn't calling `/api/email/order-received` (Step 5b) after a successful charge, or `STOREFRONT_WEBHOOK_SECRET` doesn't match between the two apps — check for 401s in that storefront's own server logs for the request to this app
+
+**A non-Shopify storefront's customers aren't showing up as subscribers at all (Step 5b):**
+- Confirm which of the three pieces is actually wired up on the storefront's side — checkout capture, order-received, and leads sync are independent, and a customer who only completes an express checkout (skipping the email field's blur handler entirely) won't get created by checkout capture at all. `/api/email/order-received` creates the subscriber if missing, specifically to cover that gap — confirm `STOREFRONT_WEBHOOK_SECRET` is set and matches
+- "Leads sync" returning 0/0/0 with no error usually means `STOREFRONT_URL` or `STOREFRONT_LEADS_API_KEY` don't match that storefront's own `LEADS_API_KEY` — a 401 from the leads export request is caught and surfaced as an error message on the Leads tab, so check that message first
