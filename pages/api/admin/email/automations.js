@@ -1,4 +1,4 @@
-import { getAutomations, updateAutomation } from '../../../../lib/automationsStore';
+import { getAutomations, updateAutomation, syncAutomationDesign } from '../../../../lib/automationsStore';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -24,6 +24,17 @@ export default async function handler(req, res) {
     }
   }
 
-  res.setHeader('Allow', 'GET, PUT');
+  if (req.method === 'POST') {
+    const { action } = req.body || {};
+    if (action !== 'sync-design') return res.status(400).json({ error: 'Unknown action.' });
+    try {
+      const automations = await syncAutomationDesign();
+      return res.status(200).json({ automations });
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  res.setHeader('Allow', 'GET, PUT, POST');
   return res.status(405).json({ error: 'Method not allowed' });
 }

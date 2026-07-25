@@ -47,6 +47,8 @@ export default function AdminDashboard() {
   const [scheduleAt, setScheduleAt] = React.useState('');
   const [activeTab, setActiveTab] = React.useState('overview');
   const [automationMessage, setAutomationMessage] = React.useState({});
+  const [syncingDesign, setSyncingDesign] = React.useState(false);
+  const [syncDesignMessage, setSyncDesignMessage] = React.useState('');
   const [previewOpen, setPreviewOpen] = React.useState({});
   const [activeAutomationId, setActiveAutomationId] = React.useState(null);
   const [welcomeSending, setWelcomeSending] = React.useState(null);
@@ -326,6 +328,36 @@ export default function AdminDashboard() {
 
   const togglePreview = (key) => {
     setPreviewOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Pushes the current code-level automation content (lib/automationsStore.js's
+  // SEED_AUTOMATIONS) into the live store, overwriting every step's
+  // subject/html — getAutomations() only ever seeds an empty store, so a
+  // design update never reaches an already-provisioned account without this.
+  const handleSyncAutomationDesign = async () => {
+    if (!window.confirm('This overwrites the subject and HTML of every automation step with the latest built-in design. Any manual edits you made to step content will be lost (enabled state and stats are kept). Continue?')) {
+      return;
+    }
+    setSyncingDesign(true);
+    setSyncDesignMessage('');
+    try {
+      const res = await fetch('/api/admin/email/automations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'sync-design' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncDesignMessage(data.error || 'Sync failed.');
+        return;
+      }
+      setAutomations(data.automations || []);
+      setSyncDesignMessage('Design synced.');
+    } catch (err) {
+      setSyncDesignMessage(err.message || 'Sync failed.');
+    } finally {
+      setSyncingDesign(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -864,7 +896,17 @@ export default function AdminDashboard() {
 
         {activeTab === 'automations' && (
         <>
-        <Section title="Automations">
+        <Section
+          title="Automations"
+          action={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {syncDesignMessage && <span style={{ fontSize: 12, color: T.soft }}>{syncDesignMessage}</span>}
+              <button type="button" onClick={handleSyncAutomationDesign} disabled={syncingDesign} style={S.btnOutline}>
+                {syncingDesign ? 'Syncing…' : 'Sync latest design'}
+              </button>
+            </div>
+          }
+        >
           <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
             <nav style={{ width: 180, flexShrink: 0 }}>
               {automations.map((a) => (
