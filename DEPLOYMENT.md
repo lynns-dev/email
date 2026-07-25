@@ -122,6 +122,31 @@ backfill manually:
 3. On the storefront, point its signup form at
    `<this-app-url>/api/email/subscribe`.
 
+## Step 5b: Connect a non-Shopify custom storefront (checkout capture + orders)
+
+For a storefront that isn't on Shopify (no `customers/create`/`orders/create`
+webhooks to rely on — Step 4c doesn't apply), two routes cover the same
+ground directly:
+
+1. **Checkout-stage email capture** — `/api/email/checkout-capture`
+   (public, same CORS allowlist as Step 5's signup form — make sure
+   `ALLOWED_ORIGINS` includes this storefront's origin). Call it
+   client-side from the checkout page's email field (e.g. on blur),
+   `POST { email, consent, cartValue }` — `consent` should reflect
+   whatever marketing checkbox the checkout form shows (unchecked ⇒
+   `false` ⇒ the call no-ops, nothing is created). This both adds the
+   subscriber (pre-confirmed, `source: 'checkout'`) and starts the
+   `abandoned_checkout` automation.
+2. **Order-completed signal** — `/api/email/order-received`, bearer-token
+   protected with `STOREFRONT_WEBHOOK_SECRET` (set that env var here, and
+   give the storefront's server-side order-fulfillment code the same
+   value). Call it server-to-server right after a charge captures:
+   `POST { email }` with header `Authorization: Bearer
+   <STOREFRONT_WEBHOOK_SECRET>`. This stops `abandoned_checkout` and
+   starts `order_received` for that subscriber — without this call, a
+   customer who already paid keeps getting cart-recovery emails, since
+   nothing else tells this app the checkout converted.
+
 ## Step 6: Crons (automations + scheduled sends)
 
 `vercel.json` schedules both `/api/cron/automations` and
@@ -199,3 +224,6 @@ this pass.
 - Confirm the `<script>` tag in Step 7 is actually rendering `data-email` with a real address (view page source while logged in) — logged-out visitors are silently skipped by design
 - Confirm the email matches an *existing* subscriber — the tracking endpoints intentionally no-op for unknown emails, same as the rest of this app
 - Check the browser console on the storefront for a CORS error, same fix as the signup form's CORS troubleshooting entry above
+
+**Non-Shopify storefront: customers keep getting abandoned-checkout emails after they've already paid:**
+- The storefront's order-fulfillment code isn't calling `/api/email/order-received` (Step 5b) after a successful charge, or `STOREFRONT_WEBHOOK_SECRET` doesn't match between the two apps — check for 401s in that storefront's own server logs for the request to this app
