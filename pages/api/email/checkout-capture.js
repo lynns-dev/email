@@ -14,6 +14,22 @@ import { applyCors } from '../../../lib/cors';
 import { addSubscriberManually, recordCheckoutStarted } from '../../../lib/subscribersStore';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_ITEMS = 25;
+
+// Untrusted client input — cap the array and only keep the fields
+// renderCartItemsHtml (lib/emailBlocks.js) actually uses, coerced to the
+// right types, so nothing unexpected ends up stored on the subscriber
+// record or rendered into an email later.
+function sanitizeItems(items) {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, MAX_ITEMS).map((item) => ({
+    id: String(item?.id ?? ''),
+    name: String(item?.name ?? 'Item').slice(0, 200),
+    quantity: Number(item?.quantity) || 1,
+    price: item?.price != null ? Number(item.price) || 0 : null,
+    image: item?.image ? String(item.image).slice(0, 500) : null,
+  }));
+}
 
 export default async function handler(req, res) {
   if (applyCors(req, res)) return;
@@ -22,7 +38,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { email, consent, cartValue } = req.body || {};
+  const { email, consent, cartValue, items } = req.body || {};
   if (!email || !EMAIL_RE.test(String(email).trim())) {
     return res.status(400).json({ error: 'Invalid email.' });
   }
@@ -30,7 +46,7 @@ export default async function handler(req, res) {
 
   try {
     await addSubscriberManually(email, 'checkout').catch(() => {});
-    await recordCheckoutStarted(email, Number(cartValue) || 0);
+    await recordCheckoutStarted(email, Number(cartValue) || 0, sanitizeItems(items));
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });
