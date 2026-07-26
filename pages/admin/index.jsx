@@ -836,6 +836,7 @@ export default function AdminDashboard() {
                   style={formInput}
                 >
                   <option value="all">All subscribed</option>
+                  <option value="no_purchase">Leads / never purchased</option>
                   <option value="engaged">Engaged only</option>
                   <option value="grade:A">Grade A only</option>
                   <option value="grade:A+B">Grade A+B</option>
