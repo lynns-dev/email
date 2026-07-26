@@ -10,12 +10,21 @@
 // regardless of whether anyone looked — see lib/emailEngagement.js.
 // abandoned_checkout/add_to_cart/order_received are timed off the
 // tracking-pixel/webhook signals recorded in lib/subscribersStore.js.
+//
+// Also pulls in newly captured storefront leads before scanning (see
+// syncStorefrontLeads call below) — Vercel's Hobby plan only allows 2
+// cron jobs and both slots are already used (send-scheduled-campaigns
+// being the other), so lead syncing rides along on this run instead of
+// getting its own schedule. A lead synced in on this pass gets
+// confirmedAt set immediately, so it's eligible for welcome_series in
+// the very same run rather than waiting for the next one.
 
 import { getAutomations } from '../../../lib/automationsStore';
 import { getSubscribers, updateAutomationState, suppressByEmail } from '../../../lib/subscribersStore';
 import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
 import { prepareStepTemplate, sendStepToSubscriber } from '../../../lib/automationSend';
+import { syncStorefrontLeads } from '../../../lib/storefrontLeadsSync';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -181,6 +190,16 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Not authorized.' });
   }
 
+  // Best-effort — an unconfigured or unreachable storefront integration
+  // (STOREFRONT_URL/STOREFRONT_LEADS_API_KEY missing, network error) is
+  // reported back but shouldn't block the rest of this cron run.
+  let leadsSynced = null;
+  try {
+    leadsSynced = await syncStorefrontLeads();
+  } catch (err) {
+    leadsSynced = { error: err.message };
+  }
+
   try {
     const [automations, subscribers, settings] = await Promise.all([getAutomations(), getSubscribers(), getSettings()]);
     const byId = (id) => automations.find((a) => a.id === id);
@@ -193,6 +212,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
+      leadsSynced,
       welcomeSent,
       abandonedCheckoutSent,
       addToCartSent,
