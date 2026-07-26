@@ -335,7 +335,7 @@ export default function AdminDashboard() {
   // subject/html — getAutomations() only ever seeds an empty store, so a
   // design update never reaches an already-provisioned account without this.
   const handleSyncAutomationDesign = async () => {
-    if (!window.confirm('This overwrites the subject and HTML of every automation step with the latest built-in design. Any manual edits you made to step content will be lost (enabled state and stats are kept). Continue?')) {
+    if (!window.confirm('This overwrites the subject, HTML, and send timing of every automation step with the latest built-in design. Any manual edits you made to step content or timing will be lost (enabled state and stats are kept). Continue?')) {
       return;
     }
     setSyncingDesign(true);

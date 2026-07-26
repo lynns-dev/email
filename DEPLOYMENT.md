@@ -170,14 +170,18 @@ timing:
 
 - **Scheduled campaigns** — a campaign scheduled for 9am landing whenever
   the daily cron happens to run defeats the point of scheduling it.
-- **The abandoned-checkout automation** — its steps are timed in *hours*
-  (1h, 24h), not days; a cart-recovery email arriving a day late is close
-  to useless.
+- **The abandoned-checkout automation** — its first step is timed at just
+  30 minutes (then 24h for the second), not days; a cart-recovery email
+  arriving hours late is close to useless. An hourly pinger only gets you
+  within an hour of that 30-minute target on average — for this flow
+  specifically, ping `/api/cron/automations` every 10–15 minutes instead
+  if you want the first email to actually land around the 30-minute mark.
 
 If you're on Hobby, strongly consider an external pinger (e.g.
-cron-job.org) hitting both routes hourly with header `Authorization:
-Bearer <CRON_SECRET>`, in addition to or instead of the daily
-`vercel.json` entries.
+cron-job.org) hitting both routes with header `Authorization: Bearer
+<CRON_SECRET>` — hourly is enough for scheduled campaigns, but every
+10–15 minutes for abandoned-checkout's 30-minute first step — in
+addition to or instead of the daily `vercel.json` entries.
 
 ## Step 7: Cart + abandoned-checkout tracking pixel
 
