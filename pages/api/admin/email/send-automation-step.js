@@ -1,5 +1,5 @@
 import { getSubscribers } from '../../../../lib/subscribersStore';
-import { sendWelcomeEmailNow } from '../../../../lib/automationSend';
+import { sendAutomationStepNow } from '../../../../lib/automationSend';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,8 +7,8 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { email } = req.body || {};
-  if (!email) return res.status(400).json({ error: 'Email is required.' });
+  const { email, flowId } = req.body || {};
+  if (!email || !flowId) return res.status(400).json({ error: 'Email and flowId are required.' });
 
   try {
     const subscribers = await getSubscribers();
@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Only subscribed contacts can be sent an automation email.' });
     }
 
-    const result = await sendWelcomeEmailNow(subscriber);
+    const result = await sendAutomationStepNow(flowId, subscriber);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     return res.status(400).json({ error: err.message });

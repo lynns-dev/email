@@ -51,8 +51,8 @@ export default function AdminDashboard() {
   const [syncDesignMessage, setSyncDesignMessage] = React.useState('');
   const [previewOpen, setPreviewOpen] = React.useState({});
   const [activeAutomationId, setActiveAutomationId] = React.useState(null);
-  const [welcomeSending, setWelcomeSending] = React.useState(null);
-  const [welcomeMessage, setWelcomeMessage] = React.useState({});
+  const [stepSending, setStepSending] = React.useState(null);
+  const [stepMessage, setStepMessage] = React.useState({});
   const [subscriberSearch, setSubscriberSearch] = React.useState('');
   const [subscriberSort, setSubscriberSort] = React.useState('date-desc');
   const [newSubscriberEmail, setNewSubscriberEmail] = React.useState('');
@@ -185,19 +185,27 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleSendWelcome = async (email) => {
-    setWelcomeSending(email);
-    setWelcomeMessage((prev) => ({ ...prev, [email]: '' }));
+  // Manual "send now" for one subscriber's next due step in a given flow
+  // — used for both "Send welcome email" and "Send abandoned-cart email"
+  // (the latter exists because the cron cadence needed for a 30-minute
+  // delay isn't always practical to run, so this is the fallback for
+  // sending it right now instead of waiting for the cron to catch it).
+  // Keyed by `${email}:${flowId}` so a subscriber can have independent
+  // sending/message state per flow.
+  const handleSendAutomationStep = async (email, flowId) => {
+    const key = `${email}:${flowId}`;
+    setStepSending(key);
+    setStepMessage((prev) => ({ ...prev, [key]: '' }));
     try {
-      const res = await fetch('/api/admin/email/send-welcome', {
+      const res = await fetch('/api/admin/email/send-automation-step', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, flowId }),
       });
       const data = await res.json();
-      setWelcomeMessage((prev) => ({ ...prev, [email]: res.ok ? `Sent: "${data.subject}"` : data.error || 'Failed to send.' }));
+      setStepMessage((prev) => ({ ...prev, [key]: res.ok ? `Sent: "${data.subject}"` : data.error || 'Failed to send.' }));
     } finally {
-      setWelcomeSending(null);
+      setStepSending(null);
     }
   };
 
@@ -715,7 +723,7 @@ export default function AdminDashboard() {
                     Joined {subscriberSort === 'date-desc' ? '↓' : '↑'}
                   </button>
                 </div>
-                <div style={{ width: 230 }} />
+                <div style={{ width: 280 }} />
               </div>
               {visibleSubscribers.length === 0 ? (
                 <p style={{ color: T.soft, fontSize: 13, padding: '16px 0' }}>No subscribers match "{subscriberSearch}".</p>
@@ -727,16 +735,31 @@ export default function AdminDashboard() {
                   <div style={{ flex: 1 }}>{s.tier}</div>
                   <div style={{ width: 60 }}>{s.grade || '—'}</div>
                   <div style={{ flex: 1 }}>{s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</div>
-                  <div style={{ width: 230, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    {welcomeMessage[s.email] && <span style={{ fontSize: 11, color: T.soft }}>{welcomeMessage[s.email]}</span>}
+                  <div style={{ width: 280, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                     {s.status === 'subscribed' && (
-                      <button
-                        onClick={() => handleSendWelcome(s.email)}
-                        disabled={welcomeSending === s.email}
-                        style={S.btnOutline}
-                      >
-                        {welcomeSending === s.email ? 'Sending…' : 'Send welcome email'}
-                      </button>
+                      <>
+                        {stepMessage[`${s.email}:welcome_series`] && <span style={{ fontSize: 11, color: T.soft }}>{stepMessage[`${s.email}:welcome_series`]}</span>}
+                        <button
+                          onClick={() => handleSendAutomationStep(s.email, 'welcome_series')}
+                          disabled={stepSending === `${s.email}:welcome_series`}
+                          style={S.btnOutline}
+                        >
+                          {stepSending === `${s.email}:welcome_series` ? 'Sending…' : 'Send welcome email'}
+                        </button>
+                      </>
+                    )}
+                    {s.status === 'subscribed' && s.checkoutStartedAt && (
+                      <>
+                        {stepMessage[`${s.email}:abandoned_checkout`] && <span style={{ fontSize: 11, color: T.soft }}>{stepMessage[`${s.email}:abandoned_checkout`]}</span>}
+                        <button
+                          onClick={() => handleSendAutomationStep(s.email, 'abandoned_checkout')}
+                          disabled={stepSending === `${s.email}:abandoned_checkout`}
+                          style={S.btnOutline}
+                          title="Sends this subscriber's next due abandoned-checkout email now, including their cart contents"
+                        >
+                          {stepSending === `${s.email}:abandoned_checkout` ? 'Sending…' : 'Send abandoned-cart email'}
+                        </button>
+                      </>
                     )}
                     {s.status !== 'suppressed' && (
                       <button onClick={() => handleSuppressSubscriber(s.email)} style={deleteBtn}>Suppress</button>
