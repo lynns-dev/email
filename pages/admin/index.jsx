@@ -474,11 +474,56 @@ export default function AdminDashboard() {
       <Head>
         <title>Email platform admin</title>
       </Head>
+      <style jsx global>{`
+        .admin-shell { display: flex; flex-direction: column; max-width: 1200px; margin: 0 auto; }
+        @media (min-width: 768px) {
+          .admin-shell { flex-direction: row; align-items: flex-start; }
+        }
+        .admin-sidebar { padding: 16px; border-bottom: 1px solid ${T.line}; box-sizing: border-box; }
+        @media (min-width: 768px) {
+          .admin-sidebar {
+            width: 200px; flex-shrink: 0; padding: 32px 16px;
+            border-right: 1px solid ${T.line}; border-bottom: none;
+            position: sticky; top: 0; height: 100vh;
+          }
+        }
+        .admin-main { flex: 1; min-width: 0; padding: 20px 16px 60px; box-sizing: border-box; }
+        @media (min-width: 768px) {
+          .admin-main { padding: 32px 24px 80px; }
+        }
+        .admin-section { padding: 16px; }
+        @media (min-width: 768px) {
+          .admin-section { padding: 24px; }
+        }
+        .pill-nav { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; min-width: 0; }
+        .pill-nav button { flex-shrink: 0; white-space: nowrap; display: inline-block; }
+        @media (min-width: 768px) {
+          .pill-nav { display: block; overflow-x: visible; padding-bottom: 0; }
+          .pill-nav button { display: block; width: 100%; white-space: normal; }
+        }
+        .flow-layout { flex-direction: column; align-items: stretch; }
+        @media (min-width: 768px) {
+          .flow-layout { flex-direction: row; align-items: flex-start; }
+        }
+        .flow-nav { margin-bottom: 16px; }
+        @media (min-width: 768px) {
+          .flow-nav { width: 180px; flex-shrink: 0; margin-bottom: 0; }
+        }
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .col-html, .col-preview { flex: 1 1 100%; min-width: 0; }
+        @media (min-width: 700px) {
+          .col-html { flex: 1 1 320px; min-width: 320px; }
+          .col-preview { flex: 1 1 280px; min-width: 280px; }
+        }
+      `}</style>
 
-      <div style={{ display: 'flex', maxWidth: 1200, margin: '0 auto', alignItems: 'flex-start' }}>
-        <aside style={sidebar}>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 28 }}>Email platform</div>
-          <nav>
+      <div className="admin-shell">
+        <aside className="admin-sidebar">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Email platform</div>
+            <button onClick={handleLogout} style={{ ...S.btnOutline, height: 32, padding: '0 12px', fontSize: 11 }}>Sign out</button>
+          </div>
+          <nav className="pill-nav">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
@@ -489,10 +534,9 @@ export default function AdminDashboard() {
               </button>
             ))}
           </nav>
-          <button onClick={handleLogout} style={{ ...S.btnOutline, width: '100%', justifyContent: 'center', marginTop: 24 }}>Sign out</button>
         </aside>
 
-        <main style={{ flex: 1, padding: '32px 24px 80px', minWidth: 0 }}>
+        <main className="admin-main">
         {activeTab === 'overview' && (
         <>
         <Section title="Analytics">
@@ -578,7 +622,7 @@ export default function AdminDashboard() {
                   <label style={formLabel}>Logo URL (shown at the top of every campaign)</label>
                   <input value={settingsForm.logoUrl} onChange={(e) => setSettingsForm({ ...settingsForm, logoUrl: e.target.value })} style={formInput} />
                 </div>
-                <div style={{ width: 200 }}>
+                <div style={{ flex: 1, minWidth: 160 }}>
                   <label style={formLabel}>Email font</label>
                   <select value={settingsForm.emailFont} onChange={(e) => setSettingsForm({ ...settingsForm, emailFont: e.target.value })} style={formInput}>
                     {EMAIL_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -612,8 +656,8 @@ export default function AdminDashboard() {
                 </button>
               </div>
             ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input placeholder="mail.yourdomain.com" value={domainInput} onChange={(e) => setDomainInput(e.target.value)} style={{ ...formInput, width: 240 }} />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input placeholder="mail.yourdomain.com" value={domainInput} onChange={(e) => setDomainInput(e.target.value)} style={{ ...formInput, flex: '1 1 200px', width: 'auto' }} />
                 <button type="button" onClick={handleVerifyDomain} disabled={domainIdentityLoading} style={S.btnFill}>
                   {domainIdentityLoading ? 'Starting…' : 'Start verification'}
                 </button>
@@ -654,19 +698,21 @@ export default function AdminDashboard() {
           {phoneOnlyLeads.length === 0 ? (
             <p style={{ color: T.soft, fontSize: 14 }}>None yet — everyone synced so far had an email.</p>
           ) : (
-            <div>
-              <div style={headRow}>
-                <div style={{ flex: 1 }}>Phone</div>
-                <div style={{ flex: 1 }}>Source</div>
-                <div style={{ flex: 1 }}>First seen</div>
-              </div>
-              {phoneOnlyLeads.map((l) => (
-                <div key={l.phone} style={row}>
-                  <div style={{ flex: 1 }}>{l.phone}</div>
-                  <div style={{ flex: 1 }}>{l.source || '—'}</div>
-                  <div style={{ flex: 1 }}>{l.firstSeenAt ? new Date(l.firstSeenAt).toLocaleDateString() : '—'}</div>
+            <div className="table-scroll">
+              <div style={{ minWidth: 420 }}>
+                <div style={headRow}>
+                  <div style={{ flex: 1 }}>Phone</div>
+                  <div style={{ flex: 1 }}>Source</div>
+                  <div style={{ flex: 1 }}>First seen</div>
                 </div>
-              ))}
+                {phoneOnlyLeads.map((l) => (
+                  <div key={l.phone} style={row}>
+                    <div style={{ flex: 1 }}>{l.phone}</div>
+                    <div style={{ flex: 1 }}>{l.source || '—'}</div>
+                    <div style={{ flex: 1 }}>{l.firstSeenAt ? new Date(l.firstSeenAt).toLocaleDateString() : '—'}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </Section>
@@ -685,7 +731,7 @@ export default function AdminDashboard() {
               placeholder="Add subscriber by email…"
               value={newSubscriberEmail}
               onChange={(e) => setNewSubscriberEmail(e.target.value)}
-              style={{ ...formInput, width: 260 }}
+              style={{ ...formInput, width: 260, maxWidth: '100%' }}
               required
             />
             <button type="submit" disabled={addingSubscriber} style={S.btnFill}>
@@ -706,9 +752,11 @@ export default function AdminDashboard() {
                   placeholder="Search by email…"
                   value={subscriberSearch}
                   onChange={(e) => setSubscriberSearch(e.target.value)}
-                  style={{ ...formInput, width: 260 }}
+                  style={{ ...formInput, width: 260, maxWidth: '100%' }}
                 />
               </div>
+              <div className="table-scroll">
+              <div style={{ minWidth: 760 }}>
               <div style={headRow}>
                 <div style={{ flex: 2 }}>Email</div>
                 <div style={{ flex: 1 }}>Status</div>
@@ -768,6 +816,8 @@ export default function AdminDashboard() {
                 </div>
               ))
               )}
+              </div>
+              </div>
             </div>
           )}
         </Section>
@@ -818,7 +868,7 @@ export default function AdminDashboard() {
                               type="datetime-local"
                               value={scheduleAt}
                               onChange={(e) => setScheduleAt(e.target.value)}
-                              style={{ ...formInput, width: 180, height: 40 }}
+                              style={{ ...formInput, width: 180, maxWidth: '100%', height: 40 }}
                             />
                             <button onClick={() => handleScheduleCampaign(c.id)} style={S.btnOutline}>Schedule</button>
                           </>
@@ -870,7 +920,7 @@ export default function AdminDashboard() {
             {templates.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <label style={formLabel}>Start from template</label>
-                <select defaultValue="" onChange={(e) => e.target.value && handleUseTemplate(e.target.value)} style={{ ...formInput, width: 260 }}>
+                <select defaultValue="" onChange={(e) => e.target.value && handleUseTemplate(e.target.value)} style={{ ...formInput, width: 260, maxWidth: '100%' }}>
                   <option value="">— none —</option>
                   {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
@@ -878,7 +928,7 @@ export default function AdminDashboard() {
             )}
 
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1, minWidth: 320 }}>
+              <div className="col-html">
                 <label style={formLabel}>HTML content</label>
                 <textarea
                   placeholder="Paste your email HTML here…"
@@ -892,7 +942,7 @@ export default function AdminDashboard() {
                     placeholder="Template name"
                     value={templateName}
                     onChange={(e) => setTemplateName(e.target.value)}
-                    style={{ ...formInput, width: 180 }}
+                    style={{ ...formInput, width: 180, maxWidth: '100%' }}
                   />
                   <button type="button" onClick={handleSaveTemplate} disabled={!templateName.trim() || !campaignForm.contentHtml.trim()} style={S.btnOutline}>
                     Save as template
@@ -901,7 +951,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div style={{ flex: 1, minWidth: 280 }}>
+              <div className="col-preview">
                 <label style={formLabel}>Preview</label>
                 <iframe
                   title="Campaign preview"
@@ -931,8 +981,8 @@ export default function AdminDashboard() {
             </div>
           }
         >
-          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-            <nav style={{ width: 180, flexShrink: 0 }}>
+          <div className="flow-layout" style={{ display: 'flex', gap: 24 }}>
+            <nav className="pill-nav flow-nav">
               {automations.map((a) => (
                 <button
                   key={a.id}
@@ -1044,7 +1094,7 @@ function ChecklistRow({ ok, label, busy }) {
 
 function Section({ title, action, children }) {
   return (
-    <div style={{ background: T.white, border: `1px solid ${T.line}`, padding: 24, marginBottom: 24 }}>
+    <div className="admin-section" style={{ background: T.white, border: `1px solid ${T.line}`, marginBottom: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, gap: 12, flexWrap: 'wrap' }}>
         <p style={{ ...S.label, margin: 0 }}>{title}</p>
         {action}
@@ -1071,12 +1121,11 @@ const formInput = {
 const formLabel = { display: 'block', fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.soft, marginBottom: 6 };
 const gradeTile = { background: T.paper, border: `1px solid ${T.line}`, padding: '14px 18px', minWidth: 90, textAlign: 'center' };
 const stepCard = { background: T.paper, border: `1px solid ${T.line}`, padding: 14, marginBottom: 10 };
-const sidebar = {
-  width: 200, flexShrink: 0, padding: '32px 16px', borderRight: `1px solid ${T.line}`,
-  position: 'sticky', top: 0, height: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column',
-};
+// Layout (width/display/scroll behavior) lives in the .pill-nav CSS class
+// (horizontal scrolling pills on mobile, a vertical block list on desktop)
+// so this only needs to carry the non-responsive visual styling.
 const sidebarLink = {
-  display: 'block', width: '100%', textAlign: 'left', padding: '10px 12px', marginBottom: 2,
+  textAlign: 'left', padding: '10px 12px', marginBottom: 2,
   background: 'none', border: 'none', borderRadius: 4, cursor: 'pointer',
   fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.soft,
 };
