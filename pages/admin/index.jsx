@@ -53,6 +53,9 @@ export default function AdminDashboard() {
   const [activeAutomationId, setActiveAutomationId] = React.useState(null);
   const [stepSending, setStepSending] = React.useState(null);
   const [stepMessage, setStepMessage] = React.useState({});
+  const [testEmail, setTestEmail] = React.useState('');
+  const [testSending, setTestSending] = React.useState(null);
+  const [testMessage, setTestMessage] = React.useState({});
   const [subscriberSearch, setSubscriberSearch] = React.useState('');
   const [subscriberSort, setSubscriberSort] = React.useState('date-desc');
   const [newSubscriberEmail, setNewSubscriberEmail] = React.useState('');
@@ -206,6 +209,32 @@ export default function AdminDashboard() {
       setStepMessage((prev) => ({ ...prev, [key]: res.ok ? `Sent: "${data.subject}"` : data.error || 'Failed to send.' }));
     } finally {
       setStepSending(null);
+    }
+  };
+
+  // Test send for arbitrary composer/step content — separate from
+  // handleSendAutomationStep and handleSendCampaign, neither of which
+  // fit here (both require an existing subscriber and mutate real
+  // stats/state). Shared across the campaign composer and every
+  // automation step card, keyed so each has its own sending/message
+  // state; testEmail itself is shared so it only needs typing once.
+  const handleSendTest = async (key, subject, contentHtml) => {
+    if (!testEmail.trim()) {
+      setTestMessage((prev) => ({ ...prev, [key]: 'Enter a test email address first.' }));
+      return;
+    }
+    setTestSending(key);
+    setTestMessage((prev) => ({ ...prev, [key]: '' }));
+    try {
+      const res = await fetch('/api/admin/email/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail.trim(), subject, contentHtml }),
+      });
+      const data = await res.json();
+      setTestMessage((prev) => ({ ...prev, [key]: res.ok ? `Sent to ${testEmail.trim()}` : data.error || 'Failed to send.' }));
+    } finally {
+      setTestSending(null);
     }
   };
 
@@ -963,6 +992,25 @@ export default function AdminDashboard() {
 
             <button type="submit" style={{ ...S.btnFill, marginTop: 16 }}>Save draft</button>
             {campaignFormMessage && <span style={{ fontSize: 12, color: T.ink, marginLeft: 12 }}>{campaignFormMessage}</span>}
+
+            <div style={{ marginTop: 20, paddingTop: 20, borderTop: `1px solid ${T.line}`, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                type="email"
+                placeholder="Test email address"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                style={{ ...formInput, width: 240, maxWidth: '100%' }}
+              />
+              <button
+                type="button"
+                onClick={() => handleSendTest('campaign-composer', campaignForm.subject, campaignForm.contentHtml)}
+                disabled={testSending === 'campaign-composer' || !campaignForm.contentHtml.trim()}
+                style={S.btnOutline}
+              >
+                {testSending === 'campaign-composer' ? 'Sending…' : 'Send test'}
+              </button>
+              {testMessage['campaign-composer'] && <span style={{ fontSize: 12, color: T.ink }}>{testMessage['campaign-composer']}</span>}
+            </div>
           </form>
         </Section>
         </>
@@ -973,7 +1021,14 @@ export default function AdminDashboard() {
         <Section
           title="Automations"
           action={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <input
+                type="email"
+                placeholder="Test email address"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                style={{ ...formInput, width: 200, maxWidth: '100%' }}
+              />
               {syncDesignMessage && <span style={{ fontSize: 12, color: T.soft }}>{syncDesignMessage}</span>}
               <button type="button" onClick={handleSyncAutomationDesign} disabled={syncingDesign} style={S.btnOutline}>
                 {syncingDesign ? 'Syncing…' : 'Sync latest design'}
@@ -1045,10 +1100,19 @@ export default function AdminDashboard() {
                           style={{ ...formInput, height: 200, padding: 12, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.5 }}
                         />
 
-                        <div style={{ marginTop: 12 }}>
+                        <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <button type="button" onClick={() => togglePreview(previewKey)} style={S.btnOutline}>
                             {previewOpen[previewKey] ? 'Hide preview' : 'Preview'}
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSendTest(previewKey, step.subject, step.html)}
+                            disabled={testSending === previewKey}
+                            style={S.btnOutline}
+                          >
+                            {testSending === previewKey ? 'Sending…' : 'Send test'}
+                          </button>
+                          {testMessage[previewKey] && <span style={{ fontSize: 12, color: T.ink }}>{testMessage[previewKey]}</span>}
                         </div>
 
                         {previewOpen[previewKey] && (
