@@ -19,7 +19,6 @@ export async function getServerSideProps({ req, res, query }) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  if (!await welcomeEnabled()) return { props: { error: 'This invitation is not active yet.' } };
   try {
     if (!['GET', 'POST'].includes(req.method)) throw new Error('Unsupported request');
     let token = String(query.token || '');
@@ -35,10 +34,13 @@ export async function getServerSideProps({ req, res, query }) {
         if (body.length > 2048) throw new Error('Invalid request');
       }
       token = new URLSearchParams(body).get('token') || '';
+      const before = await resolveWelcomeAnswer(token);
+      if (!before.qa && !await welcomeEnabled()) throw new Error('Not active');
       result = await confirmWelcomeAnswer(token);
       if (!result?.ok) throw new Error('Please try again in a moment.');
     }
     const resolved = await resolveWelcomeAnswer(token);
+    if (!resolved.qa && !await welcomeEnabled()) throw new Error('Not active');
     return { props: { answer: resolved.answer, token, saved: Boolean(result), adviceOnly: Boolean(result?.adviceOnly) } };
   } catch {
     return { props: { error: 'This invitation could not be confirmed. Please try later or visit the collection.' } };
