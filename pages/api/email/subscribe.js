@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     if (existing?.status === 'subscribed') {
       return res.status(200).json({ ok: true, alreadySubscribed: true });
     }
-    if (welcomeEnabled()) {
+    if ((await welcomeEnabled())) {
       // Explicit website signup only; old imports are never enrolled here.
       subscriber = await addSubscriberManually(email, 'newsletter', { reserveWelcome: true });
       await updateAutomationState(email, 'welcome_series', { step: 999 });
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
   } catch (err) {
     // If delivery failed, leave the welcome queued for the normal sender.
     // Never reactivate blocked addresses or change any other automation.
-    if (subscriber && !welcomeEnabled()) {
+    if (subscriber && !(await welcomeEnabled())) {
       await updateAutomationState(subscriber.email, 'welcome_series', { step: 0 }).catch(() => {});
     }
     console.error('Newsletter welcome failed', { message: err.message });
