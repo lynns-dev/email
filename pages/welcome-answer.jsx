@@ -1,5 +1,4 @@
-import { confirmWelcomeAnswer, resolveWelcomeAnswer, welcomeEnabled } from '../../lib/veilWelcome';
-import { escapeHtml } from '../../lib/veilWelcomeContent.mjs';
+import { confirmWelcomeAnswer, resolveWelcomeAnswer, welcomeEnabled } from '../lib/veilWelcome';
 const advice = {
   scent: 'Original is floral and warm. Citron Lumineaux is bright and woody. Violette Ambrée is fruit, soft flowers and amber.',
   powder: 'Press the puff into the powder. Sweep a light veil onto clean skin. Wear alone, or layer with a perfume you love.',
