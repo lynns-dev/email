@@ -11,6 +11,7 @@ export default async function handler(req, res) {
     if (!result?.ok) throw new Error('Please try again');
     return res.redirect(303, `/welcome-answer?token=${encodeURIComponent(token)}&confirmed=1`);
   } catch (err) {
+    if (process.env.VERCEL_ENV !== 'production') return res.status(400).json({ error: err.message, origin: req.headers.origin || null, host: req.headers.host, tokenPresent: Boolean(req.body?.token) });
     return res.status(400).send('Your answer could not be saved. Please reopen your email link and try again.');
   }
 }
