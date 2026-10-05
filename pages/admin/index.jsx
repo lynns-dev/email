@@ -1018,6 +1018,7 @@ export default function AdminDashboard() {
 
         {activeTab === 'automations' && (
         <>
+        <p style={{ marginBottom: 20 }}><a href="/admin/welcome-flow">View the new Veil welcome routing and launch checks</a></p>
         <Section
           title="Automations"
           action={
