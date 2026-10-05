@@ -19,7 +19,7 @@ export async function getServerSideProps({ req, res, query }) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  if (!welcomeEnabled()) return { props: { error: 'This invitation is not active yet.' } };
+  if (!await welcomeEnabled()) return { props: { error: 'This invitation is not active yet.' } };
   try {
     if (!['GET', 'POST'].includes(req.method)) throw new Error('Unsupported request');
     let token = String(query.token || '');
