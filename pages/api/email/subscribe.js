@@ -3,6 +3,7 @@ import { getAutomation } from '../../../lib/automationsStore';
 import { getSettings } from '../../../lib/settingsStore';
 import { prepareStepTemplate, sendStepToSubscriber } from '../../../lib/automationSend';
 import { applyCors } from '../../../lib/cors';
+import { welcomeEnabled, enrollWelcome, processWelcome } from '../../../lib/veilWelcome';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -26,6 +27,14 @@ export default async function handler(req, res) {
     if (existing?.status === 'subscribed') {
       return res.status(200).json({ ok: true, alreadySubscribed: true });
     }
+    if (welcomeEnabled()) {
+      // Explicit website signup only; old imports are never enrolled here.
+      subscriber = await addSubscriberManually(email, 'newsletter', { reserveWelcome: true });
+      await updateAutomationState(email, 'welcome_series', { step: 999 });
+      await enrollWelcome(subscriber);
+      const result = await processWelcome(email);
+      return res.status(200).json({ ok: true, welcomeSent: result.action === 'sent', welcomeQueued: result.action !== 'sent' });
+    }
     const flow = await getAutomation('welcome_series');
     if (!flow?.enabled || !flow.steps?.[0]?.subject) {
       return res.status(503).json({ error: 'Newsletter signup is temporarily unavailable. Please try again later.' });
@@ -40,7 +49,7 @@ export default async function handler(req, res) {
   } catch (err) {
     // If delivery failed, leave the welcome queued for the normal sender.
     // Never reactivate blocked addresses or change any other automation.
-    if (subscriber) {
+    if (subscriber && !welcomeEnabled()) {
       await updateAutomationState(subscriber.email, 'welcome_series', { step: 0 }).catch(() => {});
     }
     console.error('Newsletter welcome failed', { message: err.message });
