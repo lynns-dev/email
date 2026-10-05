@@ -25,6 +25,7 @@ import { getSettings } from '../../../lib/settingsStore';
 import { daysSinceActivity, WINBACK_AFTER_DAYS } from '../../../lib/emailEngagement';
 import { prepareStepTemplate, sendStepToSubscriber } from '../../../lib/automationSend';
 import { syncStorefrontLeads } from '../../../lib/storefrontLeadsSync';
+import { welcomeEnabled, isWelcomeManaged, welcomeState, runVeilWelcome } from '../../../lib/veilWelcome';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -52,6 +53,7 @@ async function runWelcomeSeries(flow, subscribers, settings) {
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.confirmedAt) continue;
+    if (welcomeEnabled() && await isWelcomeManaged(sub.email)) continue;
     const state = sub.automationState?.welcome_series || { step: 0 };
     if (state.step >= flow.steps.length) continue;
 
@@ -75,6 +77,10 @@ async function runSunsetWinback(flow, subscribers, settings) {
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed') continue;
+    if (welcomeEnabled()) {
+      const managed = await welcomeState(sub.email);
+      if (managed && Date.now() - managed.enrolledAt < 37 * DAY_MS) continue;
+    }
     const idleDays = daysSinceActivity(sub);
     const state = sub.automationState?.sunset_winback || { step: 0 };
 
@@ -209,8 +215,11 @@ export default async function handler(req, res) {
     const abandonedCheckoutSent = await runAbandonedCheckout(byId('abandoned_checkout') || { enabled: false }, subscribers, settings);
     const addToCartSent = await runAddToCart(byId('add_to_cart') || { enabled: false }, subscribers, settings);
     const orderReceivedSent = await runOrderReceived(byId('order_received') || { enabled: false }, subscribers, settings);
+    // Recovery has priority; shared send markers hold a welcome after other marketing.
+    const veilWelcome = await runVeilWelcome(subscribers);
 
     return res.status(200).json({
+      veilWelcome,
       ok: true,
       leadsSynced,
       welcomeSent,
