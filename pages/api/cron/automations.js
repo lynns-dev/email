@@ -53,7 +53,7 @@ async function runWelcomeSeries(flow, subscribers, settings) {
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed' || !sub.confirmedAt) continue;
-    if (welcomeEnabled() && await isWelcomeManaged(sub.email)) continue;
+    if ((await welcomeEnabled()) && await isWelcomeManaged(sub.email)) continue;
     const state = sub.automationState?.welcome_series || { step: 0 };
     if (state.step >= flow.steps.length) continue;
 
@@ -77,7 +77,7 @@ async function runSunsetWinback(flow, subscribers, settings) {
 
   for (const sub of subscribers) {
     if (sub.status !== 'subscribed') continue;
-    if (welcomeEnabled()) {
+    if ((await welcomeEnabled())) {
       const managed = await welcomeState(sub.email);
       if (managed && Date.now() - managed.enrolledAt < 37 * DAY_MS) continue;
     }
