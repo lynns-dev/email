@@ -19,7 +19,7 @@
 // skipped the email field's blur handler (touchLastOrder alone would
 // no-op for someone not already a subscriber).
 
-import { addSubscriberManually, touchLastOrder } from '../../../lib/subscribersStore';
+import { findSubscriber, touchLastOrder } from '../../../lib/subscribersStore';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -36,8 +36,11 @@ export default async function handler(req, res) {
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
   try {
-    await addSubscriberManually(email, 'order').catch(() => {});
+    // A purchase is not fresh marketing consent. Update existing records only.
+    const existing = await findSubscriber(email);
+    if (!existing) return res.status(200).json({ ok: true, noSubscriber: true });
     const ms = timestamp ? new Date(timestamp).getTime() : Date.now();
+    if (!Number.isFinite(ms)) return res.status(400).json({ error: 'Invalid timestamp' });
     await touchLastOrder(email, ms);
     return res.status(200).json({ ok: true });
   } catch (err) {
