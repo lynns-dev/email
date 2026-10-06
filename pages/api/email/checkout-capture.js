@@ -11,7 +11,8 @@
 // someone's automation state or order count, nothing financial).
 
 import { applyCors } from '../../../lib/cors';
-import { addSubscriberManually, recordCheckoutStarted } from '../../../lib/subscribersStore';
+import { addSubscriberManually, recordCheckoutStarted, findSubscriber } from '../../../lib/subscribersStore';
+import { sendWelcomeNow } from '../../../lib/automationSend';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_ITEMS = 25;
@@ -45,8 +46,12 @@ export default async function handler(req, res) {
   if (!consent) return res.status(200).json({ ok: true, skipped: 'no consent' });
 
   try {
-    await addSubscriberManually(email, 'checkout').catch(() => {});
+    const before = await findSubscriber(email);
+    const subscriber = await addSubscriberManually(email, 'checkout').catch(() => null);
     await recordCheckoutStarted(email, Number(cartValue) || 0, sanitizeItems(items));
+    // New subscribers get their welcome now rather than at the next
+    // daily cron run — see sendWelcomeNow in lib/automationSend.js.
+    if (before?.status !== 'subscribed') await sendWelcomeNow(subscriber);
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

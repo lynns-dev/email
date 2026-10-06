@@ -14,7 +14,7 @@ const TABS = [
   { id: 'automations', label: 'Automations' },
 ];
 const FLOW_DESCRIPTIONS = {
-  welcome_series: 'Fires when a subscriber confirms (double opt-in) or syncs in already consented from Shopify.',
+  welcome_series: 'Fires the moment someone subscribes — newsletter signup, checkout, order, or lead sync. Shopify customers and manual adds start at the next daily run.',
   sunset_winback: 'Fires when a subscriber goes quiet — win-back attempt, then auto-suppress if still inactive.',
   abandoned_checkout: 'Fires when the on-site tracking pixel reports a started checkout with no order since.',
   add_to_cart: 'Fires for cart activity that never reached checkout — softer than abandoned checkout.',

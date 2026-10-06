@@ -19,7 +19,8 @@
 // skipped the email field's blur handler (touchLastOrder alone would
 // no-op for someone not already a subscriber).
 
-import { addSubscriberManually, touchLastOrder } from '../../../lib/subscribersStore';
+import { addSubscriberManually, touchLastOrder, findSubscriber } from '../../../lib/subscribersStore';
+import { sendWelcomeNow } from '../../../lib/automationSend';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -36,9 +37,13 @@ export default async function handler(req, res) {
   if (!email) return res.status(400).json({ error: 'Email is required.' });
 
   try {
-    await addSubscriberManually(email, 'order').catch(() => {});
+    const before = await findSubscriber(email);
+    const subscriber = await addSubscriberManually(email, 'order').catch(() => null);
     const ms = timestamp ? new Date(timestamp).getTime() : Date.now();
     await touchLastOrder(email, ms);
+    // New subscribers get their welcome now rather than at the next
+    // daily cron run — see sendWelcomeNow in lib/automationSend.js.
+    if (before?.status !== 'subscribed') await sendWelcomeNow(subscriber);
     return res.status(200).json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

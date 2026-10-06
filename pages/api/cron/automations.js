@@ -15,9 +15,9 @@
 // syncStorefrontLeads call below) — Vercel's Hobby plan only allows 2
 // cron jobs and both slots are already used (send-scheduled-campaigns
 // being the other), so lead syncing rides along on this run instead of
-// getting its own schedule. A lead synced in on this pass gets
-// confirmedAt set immediately, so it's eligible for welcome_series in
-// the very same run rather than waiting for the next one.
+// getting its own schedule. A lead synced in on this pass is sent its
+// first welcome_series step during the sync itself (sendWelcomeNow in
+// lib/automationSend.js); later steps are picked up here as they come due.
 
 import { getAutomations } from '../../../lib/automationsStore';
 import { getSubscribers, updateAutomationState, suppressByEmail } from '../../../lib/subscribersStore';
