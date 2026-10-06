@@ -19,8 +19,6 @@ export default function Document() {
         `,
           }}
         />
-        {/* Ryze Pixel — web analytics / A-B test redirects. */}
-        <script src="https://px.get-ryze.ai/px.js?key=rz_pk_a78be2ffd8bc875cb7bd97f725fee300" />
       </Head>
       <body>
         <Main />
