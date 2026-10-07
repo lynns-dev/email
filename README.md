@@ -1,3 +1,11 @@
+> **Retired.** Email marketing now runs inside each store's own admin
+> (veil-ecommerce and anese, `lib/email/`, admin → Email). This app's
+> scheduled sending is switched off (empty `crons` in `vercel.json`) so it
+> can't email subscribers the stores have imported. Keep the deployment up
+> until both stores have run admin → Email → Import, and until links in
+> already-sent emails (unsubscribe, click tracking) have had time to age
+> out.
+
 # Email platform
 
 A standalone email marketing platform — Shopify customer sync, double
